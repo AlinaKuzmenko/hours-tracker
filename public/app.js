@@ -27,21 +27,14 @@ function focusHeading() { const h = $app.querySelector('h1'); if (h) { h.tabInde
 // ---------- login ----------
 function renderLogin() {
   document.title = 'Вхід — Облік годин';
+  const err = new URLSearchParams(location.search).get('login_error');
+  const msg = { denied: 'Цей акаунт Google не має доступу до додатка.', failed: 'Не вдалося увійти. Спробуйте ще раз.' }[err];
   $app.innerHTML = `
     <h1>Облік годин. Вхід</h1>
-    <form id="f">
-      <label for="phrase">Ваша секретна фраза</label>
-      <input id="phrase" type="password" autocomplete="current-password" autocapitalize="off">
-      <button type="submit">Увійти</button>
-    </form>
-    <p class="hint">Фразу можна продиктувати. Після входу цей комп'ютер запамʼятає вас.</p>`;
-  $app.querySelector('#f').onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await call('POST', '/api/login', { phrase: $app.querySelector('#phrase').value });
-      await start();
-    } catch (err) { if (err.message !== 'auth') warn(err.message); }
-  };
+    ${msg ? `<p class="msg" role="alert">${msg}</p>` : ''}
+    <button id="google">Увійти через Google</button>
+    <p class="hint">Після входу цей комп'ютер запамʼятає вас.</p>`;
+  $app.querySelector('#google').onclick = () => { location.href = '/api/auth/google'; };
   focusHeading();
 }
 
