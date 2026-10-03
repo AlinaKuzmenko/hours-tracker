@@ -99,11 +99,8 @@ const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+let micUsed = false; // a voice recording was started on this page
 let micStop = null; // finishes the running recording and uses what it heard
-// Safari on iPhone often gives a second recording no sound when a new recogniser object is created for it,
-// so one object is reused for the whole page; a fresh one is only made while the shared one is still busy.
-let sharedRec = null;
-let sharedBusy = false;
 let micAbort = null; // cancels the running recording and drops what it heard (clear button, closing a dialog)
 
 // A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
@@ -157,81 +154,109 @@ function bindMics(root) {
     btn.onclick = () => {
       // Tapping the button while it is recording finishes the recording (and uses the text).
       if (btn.classList.contains('listening') && micStop) { micStop(); return; }
-      if (micAbort) micAbort(); // never two recordings at once (Safari then refuses to start the new one)
-      let rec;
-      if (sharedRec && !sharedBusy) rec = sharedRec;
-      else { rec = new (getSR())(); if (!sharedRec) sharedRec = rec; }
-      const isShared = rec === sharedRec;
-      if (isShared) sharedBusy = true;
-      rec.lang = SPEECH_LANG;
-      rec.interimResults = true;
+      if (micAbort) micAbort(); // never two recordings at once
+      micUsed = true;
+      const base = input.value.trim(); // what is already in the field stays; speech is appended to it
+      let rec = null;
+      let heard = '';
+      let discarded = false, manualStop = false, failed = false, retried = false, sawSound = false, watchdog = null;
       // A pause while thinking should not end the recording. If continuous mode has failed before on this device,
       // the plain mode is used instead (remembered for this browser session).
       let plain = false;
       try { plain = sessionStorage.getItem('micPlain') === '1'; } catch {}
-      rec.continuous = !plain;
-      rec.maxAlternatives = 1;
-      const base = input.value.trim(); // what is already in the field stays; speech is appended to it
-      let heard = '';
-      let discarded = false, manualStop = false, failed = false;
       // Diagnostics: a short trail of what the recogniser did, shown under the button so it can be reported.
       const trailEl = root.querySelector('#micTrail');
       const t0 = Date.now(), trail = [];
-      const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${rec.continuous ? 'continuous' : 'plain'}: ${trail.join(' › ')}`; };
-      let sawSound = false, watchdog = null;
-      rec.onstart = () => mark('start');
-      rec.onaudiostart = () => {
-        mark('audiostart');
-        // The microphone opened but no sound arrives at all (e.g. Bluetooth headphones grabbing the input): hint at it.
-        // The recording is left running, because some Safari versions never send the sound events even while speech works.
-        watchdog = setTimeout(() => { if (!sawSound && !discarded && micAbort === abort) { mark('silent'); warn(t('mic.silent')); } }, 8000);
-      };
-      rec.onsoundstart = () => { sawSound = true; mark('soundstart'); };
-      rec.onspeechstart = () => { sawSound = true; mark('speechstart'); };
-      rec.onspeechend = () => mark('speechend');
-      rec.onsoundend = () => mark('soundend');
-      rec.onaudioend = () => mark('audioend');
-      rec.onnomatch = () => mark('nomatch');
-      mark('tap');
-      rec.onresult = (e) => {
-        if (discarded) return;
-        sawSound = true;
-        if (!trail.some((x) => x.startsWith('result'))) mark('result');
-        heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
-        input.value = (base ? base + ' ' : '') + heard;
-      };
-      rec.onerror = (e) => {
-        mark(`error:${e.error}`);
-        if (rec.continuous && e.error !== 'aborted') { try { sessionStorage.setItem('micPlain', '1'); } catch {} }
-        const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
-        // Chrome/Firefox/Edge on iPhone are not allowed to use speech recognition even when the microphone is switched on in Settings.
-        const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-        if (e.error !== 'aborted' && !discarded) { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
-      };
+      const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${plain ? 'plain' : 'continuous'}: ${trail.join(' › ')}`; };
+      const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
       const release = () => { if (micStop === stop) micStop = null; if (micAbort === abort) micAbort = null; };
-      rec.onend = () => {
-        clearTimeout(watchdog);
-        if (isShared) sharedBusy = false;
-        mark('end');
-        if (rec.continuous && !heard && !discarded && !manualStop) { try { sessionStorage.setItem('micPlain', '1'); } catch {} } // nothing came out of continuous mode: use plain mode next time
-        setListening(false);
-        release();
-        if (discarded || failed) return;
-        if (!heard) return warn(t('mic.nothing'));
-        if (btn.dataset.submit) {
-          // After a manual stop the sentence is used as it is. If the recording ended by itself (a long pause)
-          // an unfinished sentence is kept and the user is asked to continue instead of showing an error.
-          if (manualStop || isCompleteSentence(input.value)) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
-          else warn(t('mic.paused'));
-        }
+      const stop = () => { manualStop = true; try { if (rec) rec.stop(); } catch {} };
+      const abort = () => { discarded = true; clearTimeout(watchdog); try { if (rec) rec.abort(); } catch {} setListening(false); release(); };
+      const hint = () => { mark('silent'); warn(t('mic.silent')); };
+
+      // Safari on iPhone sometimes opens the microphone for a second recording but delivers no sound at all.
+      // Recover once: drop that recogniser, wake the microphone with getUserMedia, then start a new recogniser.
+      const retry = async () => {
+        retried = true;
+        mark('retry');
+        const old = rec;
+        rec = null; // events of the old recogniser are ignored from now on
+        try { old.abort(); } catch {}
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((tr) => tr.stop());
+          mark('woke-mic');
+        } catch (err) { mark(`wake-failed:${(err && err.name) || ''}`); }
+        if (discarded) return;
+        if (manualStop) { abort(); return; }
+        await new Promise((r) => setTimeout(r, 300));
+        if (discarded) return;
+        try { begin(); mark('restarted'); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
       };
-      const stop = () => { manualStop = true; try { rec.stop(); } catch {} };
-      const abort = () => { discarded = true; clearTimeout(watchdog); try { rec.abort(); } catch { try { rec.stop(); } catch {} } setListening(false); release(); };
+
+      const begin = () => {
+        const r = new (getSR())();
+        rec = r;
+        const mine = () => r === rec && !discarded;
+        r.lang = SPEECH_LANG;
+        r.interimResults = true;
+        r.continuous = !plain;
+        r.maxAlternatives = 1;
+        r.onstart = () => { if (mine()) mark('start'); };
+        r.onaudiostart = () => {
+          if (!mine()) return;
+          mark('audiostart');
+          clearTimeout(watchdog);
+          // No sound at all after a few seconds: recover once; if it is still silent, hint at headphones.
+          // The recording is left running, because some Safari versions never send the sound events even while speech works.
+          watchdog = setTimeout(() => { if (mine() && !sawSound) { if (retried) hint(); else retry(); } }, retried ? 8000 : 4000);
+        };
+        r.onsoundstart = () => { if (mine()) { sawSound = true; mark('soundstart'); } };
+        r.onspeechstart = () => { if (mine()) { sawSound = true; mark('speechstart'); } };
+        r.onspeechend = () => { if (mine()) mark('speechend'); };
+        r.onsoundend = () => { if (mine()) mark('soundend'); };
+        r.onaudioend = () => { if (mine()) mark('audioend'); };
+        r.onnomatch = () => { if (mine()) mark('nomatch'); };
+        r.onresult = (e) => {
+          if (!mine()) return;
+          sawSound = true;
+          if (!trail.some((x) => x.startsWith('result'))) mark('result');
+          heard = Array.from(e.results).map((x) => x[0].transcript).join(' ').trim();
+          input.value = (base ? base + ' ' : '') + heard;
+        };
+        r.onerror = (e) => {
+          if (!mine()) return;
+          mark(`error:${e.error}`);
+          if (!plain && e.error !== 'aborted') { try { sessionStorage.setItem('micPlain', '1'); } catch {} }
+          const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
+          // Chrome/Firefox/Edge on iPhone are not allowed to use speech recognition even when the microphone is switched on in Settings.
+          if (e.error !== 'aborted') { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
+        };
+        r.onend = () => {
+          if (r !== rec) return; // an old recogniser that was replaced
+          clearTimeout(watchdog);
+          mark('end');
+          if (!plain && !heard && !discarded && !manualStop) { try { sessionStorage.setItem('micPlain', '1'); } catch {} } // nothing came out of continuous mode: use plain mode next time
+          setListening(false);
+          release();
+          if (discarded || failed) return;
+          if (!heard) return warn(t('mic.nothing'));
+          if (btn.dataset.submit) {
+            // After a manual stop the sentence is used as it is. If the recording ended by itself (a long pause)
+            // an unfinished sentence is kept and the user is asked to continue instead of showing an error.
+            if (manualStop || isCompleteSentence(input.value)) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
+            else warn(t('mic.paused'));
+          }
+        };
+        r.start();
+      };
+
       micStop = stop;
       micAbort = abort;
       setListening(true);
+      mark('tap');
       // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
-      try { rec.start(); } catch (err) { abort(); if (isShared) sharedBusy = false; warn(`${t('mic.failed')} (${err.name || 'start'})`); }
+      try { begin(); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
     };
   });
 }
@@ -240,7 +265,13 @@ function bindMics(root) {
 function renderLogin() {
   document.title = t('login.title');
   const err = new URLSearchParams(location.search).get('login_error');
-  const msg = { denied: t('login.denied'), failed: t('login.failed') }[err];
+  // The server names the rejected address in a short-lived cookie; show it, then forget it.
+  let deniedEmail = '';
+  try {
+    const m = /(?:^|;\s*)denied_email=([^;]*)/.exec(document.cookie);
+    if (m) { deniedEmail = decodeURIComponent(m[1]); document.cookie = 'denied_email=; Path=/; Max-Age=0'; }
+  } catch {}
+  const msg = { denied: deniedEmail ? t('login.deniedEmail', { email: deniedEmail }) : t('login.denied'), failed: t('login.failed') }[err];
   $app.innerHTML = `
     <h1>${esc(t('login.title'))}</h1>
     ${msg ? `<p class="msg" role="alert">${esc(msg)}</p>` : ''}
@@ -400,12 +431,30 @@ function limitDuration(hEl, mEl) {
 }
 
 // Date picker shared by the add form and the edit dialog: a native date field (opens the device calendar).
-function whenHtml(pre) {
-  return `<label for="${pre}when">${esc(t('add.date'))}</label>
-    <input id="${pre}when" type="date" value="${iso(new Date())}">`;
+const ICON_PREV = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>';
+const ICON_NEXT = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7"/></svg>';
+// With `arrows`, a "previous day" button stands left of the calendar field and a "next day" button right of it.
+function whenHtml(pre, arrows = false) {
+  const input = `<input id="${pre}when" type="date" value="${iso(new Date())}">`;
+  const body = arrows
+    ? `<div class="date-row">
+        <button type="button" class="step" data-day="-1" data-for="${pre}when" aria-label="${esc(t('date.prev'))}">${ICON_PREV}</button>${input}
+        <button type="button" class="step" data-day="1" data-for="${pre}when" aria-label="${esc(t('date.next'))}">${ICON_NEXT}</button>
+      </div>`
+    : input;
+  return `<label for="${pre}when">${esc(t('add.date'))}</label>${body}`;
 }
 function makeWhen(root, pre) {
   const input = root.querySelector('#' + pre + 'when');
+  // Moves the date by whole days; an empty field starts from today.
+  root.querySelectorAll(`[data-day][data-for="${pre}when"]`).forEach((b) => {
+    b.onclick = () => {
+      const [y, m, d] = (input.value || iso(new Date())).split('-').map(Number);
+      input.value = iso(new Date(y, m - 1, d + Number(b.dataset.day)));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      say(L.fmtDate(input.value)); // the button keeps focus, so the new date is announced
+    };
+  });
   return { get: () => input.value || null, set: (date) => { input.value = date; } };
 }
 
@@ -562,7 +611,7 @@ function renderAdd() {
       <fieldset>
         <legend>${esc(t('add.legend'))}</legend>
         ${pickerHtml('who', t('add.who'), personOptions(), 'self')}
-        ${whenHtml('')}
+        ${whenHtml('', true)}
         ${stepperHtml('h', t('add.hours'), 0, 24, 0)}
         ${stepperHtml('m', t('add.minutes'), 0, 59, 0, 5)}
         <button type="submit" id="save">${esc(t('add.save'))}</button>
@@ -636,12 +685,23 @@ function renderAdd() {
         await call('POST', '/api/entries', { personId: who.get(), date, minutes: min });
       } catch (err) { return err.message !== 'auth' && warn(t('msg.saveFailed')); }
       await refresh();
-      // Reset the form and update the list in place. Focus is deliberately not moved.
+      const message = t('msg.saved', { summary: text });
+      // Safari on iPhone only records reliably on a freshly loaded page, so after a voice entry the page is
+      // reloaded: everything (fields, picker, date, microphone) is back to its initial state. The confirmation
+      // is announced after the reload.
+      if (micUsed) {
+        try { sessionStorage.setItem('flash', message); } catch {}
+        location.reload();
+        return;
+      }
+      // Otherwise reset everything in place. Focus is deliberately not moved.
       $('sentence').value = '';
+      who.set('self');
       when.set(iso(new Date()));
       $('h').value = 0; $('m').value = 0;
+      const trailEl = $('micTrail'); if (trailEl) trailEl.textContent = '';
       fillRecent();
-      say(t('msg.saved', { summary: text }));
+      say(message);
     });
   };
 }
@@ -800,5 +860,10 @@ async function start() {
   view = 'add';
   render();
   focusHeading();
+  // Confirmation of an entry saved just before the page was reloaded (see the add form).
+  try {
+    const flash = sessionStorage.getItem('flash');
+    if (flash) { sessionStorage.removeItem('flash'); setTimeout(() => say(flash), 900); }
+  } catch {}
 }
 start();
