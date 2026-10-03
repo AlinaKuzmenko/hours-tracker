@@ -119,6 +119,17 @@ function bigMic(id, label, submitForm) {
   if (!getSR()) return '';
   return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button><p id="micTrail" class="mic-trail" aria-hidden="true"></p>`;
 }
+// Pressing or tabbing to anything other than the recording button ends the recording. What was heard so far
+// stays in the field (it is written there while speaking), so e.g. pressing "Erkennen" uses it.
+function stopRecordingOnOtherControl(e) {
+  if (!micAbort) return;
+  const el = e.target && e.target.closest ? e.target.closest('button, a, input, select, textarea, summary, [role=radio]') : null;
+  if (!el || el.classList.contains('listening')) return;
+  micAbort();
+}
+document.addEventListener('pointerdown', stopRecordingOnOtherControl, true);
+document.addEventListener('focusin', stopRecordingOnOtherControl, true);
+
 // Does the sentence already say how long? Then it can be recognised (a missing person or date is handled there).
 function isCompleteSentence(text) {
   return !!L.parseSentence(text, state.people).minutes;
@@ -249,6 +260,7 @@ function renderLogin() {
 // `first` (optional) is the content of a full-height first screen together with the menu and heading;
 // `inner` is everything after it.
 function shell(title, inner, first) {
+  if (micAbort) micAbort(); // a recording must not outlive the page it belongs to
   document.title = title;
   const nav = [['add', t('nav.add')], ['report', t('nav.reports')], ['people', t('nav.people')]]
     .map(([k, n]) => `<button class="secondary" data-nav="${k}" ${view === k ? 'aria-current="page"' : ''}>${esc(n)}</button>`).join('');
