@@ -30,16 +30,23 @@ function confirmDialog({ title, detail, okLabel, opener }) {
     if (detail) d.setAttribute('aria-describedby', 'dlg-detail');
     d.innerHTML = `<h2 id="dlg-title" tabindex="-1">${esc(title)}</h2>
       ${detail ? `<p id="dlg-detail">${esc(detail)}</p>` : ''}
-      <form method="dialog">
-        <button value="cancel" class="secondary">Скасувати</button>
-        <button value="ok">${esc(okLabel)}</button>
-      </form>`;
-    d.addEventListener('close', () => {
-      const ok = d.returnValue === 'ok';
+      <div class="dlg-actions">
+        <button type="button" class="secondary" data-act="cancel">Скасувати</button>
+        <button type="button" data-act="ok">${esc(okLabel)}</button>
+      </div>`;
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      if (d.open) d.close();
       d.remove();
-      if (!ok && opener && opener.isConnected) opener.focus();
+      if (!ok && opener) setTimeout(() => opener.isConnected && opener.focus(), 0); // after the browser's own focus restore
       resolve(ok);
-    });
+    };
+    d.querySelector('[data-act=cancel]').onclick = () => finish(false);
+    d.querySelector('[data-act=ok]').onclick = () => finish(true);
+    d.addEventListener('cancel', () => finish(false)); // Esc
+    d.addEventListener('close', () => finish(false));
     document.body.appendChild(d);
     d.showModal();
     d.querySelector('h2').focus();

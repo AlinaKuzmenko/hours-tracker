@@ -46,5 +46,5 @@ dialog { width: min(32rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); 
 dialog::backdrop { background: rgba(0, 0, 0, .88); }
 dialog h2 { border: 0; padding: 0; margin: 0 0 1rem; text-transform: uppercase; font-size: 1.3rem; line-height: 1.3; overflow-wrap: anywhere; }
 dialog p { margin: 0 0 1rem; }
-dialog form { display: grid; gap: .75rem; }
+dialog .dlg-actions { display: grid; gap: .75rem; }
 dialog button { margin: 0; }
