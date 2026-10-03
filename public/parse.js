@@ -242,6 +242,12 @@
       return { personId: person && person.id, date, minutes: minutes && minutes > 0 ? minutes : null };
     }
 
+    // A date spoken on its own ("fünfzehnter Oktober", "1.10", "gestern"); null if none was understood.
+    function parseDateText(input, today = new Date(), allowFuture = false) {
+      const lowered = String(input || '').toLowerCase().replace(/(\d),(\d)/g, '$1.$2').replace(/[,;!?]/g, ' ');
+      return parseDate(wordsToDigits(L.normalize(lowered), L.units, L.tens, L.compound), today, allowFuture).date;
+    }
+
     const fmtDuration = (min) => (min ? L.fmtDuration(Math.floor(min / 60), min % 60) : L.zero);
     const parts = (isoStr) => { const [y, mo, d] = isoStr.split('-').map(Number); return new Date(y, mo - 1, d); };
     const fmtDate = (isoStr, withYear) => parts(isoStr).toLocaleDateString(L.intl, { weekday: 'long', day: 'numeric', month: 'long', ...(withYear ? { year: 'numeric' } : {}) });
@@ -249,7 +255,7 @@
       weekday: parts(isoStr).toLocaleDateString(L.intl, { weekday: 'long' }),
       dayMonth: parts(isoStr).toLocaleDateString(L.intl, { day: 'numeric', month: 'long' }),
     });
-    return { parseSentence, parseDate, fmtDuration, fmtDate, fmtDateParts, intl: L.intl };
+    return { parseSentence, parseDate, parseDateText, fmtDuration, fmtDate, fmtDateParts, intl: L.intl };
   }
 
   const api = { forLang, iso, addDays };

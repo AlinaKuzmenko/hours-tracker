@@ -222,6 +222,11 @@ function bindMics(root) {
           sawSound = true;
           if (!trail.some((x) => x.startsWith('result'))) mark('result');
           heard = Array.from(e.results).map((x) => x[0].transcript).join(' ').trim();
+          if (btn.dataset.date) { // a date field: turn the spoken words into a date
+            const date = L.parseDateText(heard, new Date(), true);
+            if (date) input.value = date;
+            return;
+          }
           input.value = (base ? base + ' ' : '') + heard;
         };
         r.onerror = (e) => {
@@ -241,6 +246,7 @@ function bindMics(root) {
           release();
           if (discarded || failed) return;
           if (!heard) return warn(t('mic.nothing'));
+          if (btn.dataset.date) { if (!L.parseDateText(heard, new Date(), true)) warn(t('msg.badDate')); return; }
           if (btn.dataset.submit) {
             // After a manual stop the sentence is used as it is. If the recording ended by itself (a long pause)
             // an unfinished sentence is kept and the user is asked to continue instead of showing an error.
@@ -303,6 +309,7 @@ function shell(title, inner, first) {
     ${view === 'add' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   bindMics($app);
+  bindDayArrows($app);
   if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
     if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: 'orange', opener: b }))) return;
@@ -444,17 +451,31 @@ function whenHtml(pre, arrows = false) {
     : input;
   return `<label for="${pre}when">${esc(t('add.date'))}</label>${body}`;
 }
-function makeWhen(root, pre) {
-  const input = root.querySelector('#' + pre + 'when');
-  // Moves the date by whole days; an empty field starts from today.
-  root.querySelectorAll(`[data-day][data-for="${pre}when"]`).forEach((b) => {
+// "Previous day" / "next day" buttons (data-day) for the date field named in data-for. An empty field starts from today.
+function bindDayArrows(root) {
+  root.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
+      const input = root.querySelector('#' + b.dataset.for);
       const [y, m, d] = (input.value || iso(new Date())).split('-').map(Number);
       input.value = iso(new Date(y, m - 1, d + Number(b.dataset.day)));
       input.dispatchEvent(new Event('change', { bubbles: true }));
       say(L.fmtDate(input.value)); // the button keeps focus, so the new date is announced
     };
   });
+}
+// A calendar field with arrows on both sides and, where speech recognition exists, a mic button that fills it from a spoken date.
+function dateFieldWithMic(id, label, value) {
+  const micBtn = getSR() ? `<button type="button" class="mic" data-mic="${id}" data-date="1" data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
+  return `<label for="${id}">${esc(label)}</label>
+    <div class="date-row ${micBtn ? 'has-mic' : ''}">
+      <button type="button" class="step" data-day="-1" data-for="${id}" aria-label="${esc(t('date.prev'))}">${ICON_PREV}</button>
+      <input id="${id}" type="date" value="${value || ''}">
+      <button type="button" class="step" data-day="1" data-for="${id}" aria-label="${esc(t('date.next'))}">${ICON_NEXT}</button>
+      ${micBtn}
+    </div>`;
+}
+function makeWhen(root, pre) {
+  const input = root.querySelector('#' + pre + 'when');
   return { get: () => input.value || null, set: (date) => { input.value = date; } };
 }
 
@@ -748,10 +769,8 @@ function renderReport() {
     <details id="custom">
       <summary>${esc(t('report.customTitle'))}</summary>
       <form id="range">
-        <label for="from">${esc(t('report.from'))}</label>
-        ${fieldWithMic('<input id="from" autocomplete="off">', 'from', t('report.from'))}
-        <label for="to">${esc(t('report.to'))}</label>
-        ${fieldWithMic('<input id="to" autocomplete="off">', 'to', t('report.to'))}
+        ${dateFieldWithMic('from', t('report.from'), '')}
+        ${dateFieldWithMic('to', t('report.to'), '')}
         <button type="submit">${esc(t('report.show'))}</button>
       </form>
     </details>
@@ -780,6 +799,8 @@ function renderReport() {
       ${list.length ? `<ul>${list.map((e) => entryLi(e, false)).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
     bindEntryActions($('reportBody'), fillReport, () => $('ptitle'));
     markActive();
+    // The two date fields always start from the period that is shown, so the arrows move from there.
+    if (report.mode !== 'custom') { $('from').value = per.from; $('to').value = per.to; }
   }
   fillReport();
 
@@ -789,8 +810,7 @@ function renderReport() {
   $app.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => { report = { mode: b.dataset.preset, personId: report.personId }; fillReport(); announce(); }));
   $('range').onsubmit = (e) => {
     e.preventDefault();
-    const parse = (v) => L.parseDate(String(v).toLowerCase().replace(/\s+/g, ' ').trim(), new Date(), true).date;
-    const from = parse($('from').value), to = parse($('to').value);
+    const from = $('from').value, to = $('to').value;
     if (!from || !to) return warn(t('msg.badRange'));
     if (from > to) return warn(t('msg.rangeOrder'));
     report = { mode: 'custom', from, to, personId: report.personId };
