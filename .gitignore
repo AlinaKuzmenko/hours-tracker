@@ -1,0 +1,6 @@
+data/
+node_modules/
+.vercel/
+.idea/
+.DS_Store
+.env*

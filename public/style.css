@@ -1,0 +1,26 @@
+:root { --bg: #000; --fg: #ffe600; --accent: #fff; --line: #ffe600; }
+* { box-sizing: border-box; }
+html { font-size: 28px; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, Helvetica, Arial, sans-serif; line-height: 1.5; }
+main { max-width: 40rem; margin: 0 auto; padding: 1rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+h1 { font-size: 1.6rem; margin: 1rem 0; }
+h2 { font-size: 1.3rem; margin: 1.5rem 0 .5rem; border-top: 3px solid var(--line); padding-top: 1rem; }
+h3 { font-size: 1.1rem; margin: 1rem 0 .25rem; }
+nav { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: 1rem; }
+label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
+input, select, button { font: inherit; width: 100%; padding: .6rem .8rem; border: 3px solid var(--fg); border-radius: .4rem; background: var(--bg); color: var(--fg); }
+button { background: var(--fg); color: var(--bg); font-weight: bold; cursor: pointer; margin-top: .75rem; }
+button.secondary { background: var(--bg); color: var(--fg); }
+button[aria-current="page"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button.danger { background: var(--bg); color: var(--fg); border-style: dashed; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+:focus-visible { outline: 6px solid var(--accent); outline-offset: 3px; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
+.total { font-size: 1.2rem; font-weight: bold; }
+.msg { border: 3px solid var(--accent); padding: .6rem; border-radius: .4rem; margin: 1rem 0; color: var(--accent); }
+fieldset { border: 3px solid var(--line); border-radius: .4rem; margin: 1.5rem 0 0; padding: .5rem 1rem 1rem; }
+legend { font-weight: bold; padding: 0 .5rem; }
+.hint { opacity: .85; font-size: .8rem; }
+[hidden] { display: none !important; }
