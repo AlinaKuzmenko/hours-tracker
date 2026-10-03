@@ -358,7 +358,8 @@ function renderAdd() {
     </form>
     </div>
     <h2 id="recentTitle" tabindex="-1">${esc(t('add.recent'))}</h2>
-    <div id="recent"></div>`, `
+    <div id="recent"></div>
+    <button type="button" class="secondary" id="more" hidden>${esc(t('add.showMore'))}</button>`, `
     <form id="say">
       <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
       <p id="ex" class="hint">${esc(t('add.example'))}</p>
@@ -366,12 +367,23 @@ function renderAdd() {
       <button type="submit">${esc(t('add.recognize'))}</button>
     </form>`);
 
+  let shown = 3; // how many recent entries are listed; "Show more" raises it
   function fillRecent() {
-    const last = [...state.entries].sort((a, b) => b.created.localeCompare(a.created)).slice(0, 3);
+    const all = [...state.entries].sort((a, b) => b.created.localeCompare(a.created));
+    const last = all.slice(0, shown);
+    $('more').hidden = shown >= all.length;
     $('recent').innerHTML = last.length ? `<ul>${last.map((e) => entryLi(e, true)).join('')}</ul>` : `<p>${esc(t('add.none'))}</p>`;
     bindEntryActions($('recent'), fillRecent, () => $('recentTitle'));
   }
   fillRecent();
+  $('more').onclick = () => {
+    shown += 5;
+    fillRecent();
+    const total = state.entries.length;
+    say(t('add.shown', { n: Math.min(shown, total), total }));
+    // The button disappears once everything is shown; keep focus in the list instead of losing it.
+    if ($('more').hidden) focusSoon($('recent').querySelector('li:last-child [data-edit]') || $('recentTitle'), 100);
+  };
 
   const when = makeWhen($app, '');
   const who = makePicker($app, 'who', t('add.who'), personOptions());
@@ -434,13 +446,20 @@ function period() {
     const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
     return { from: iso(start), to: iso(end), title: t('report.monthTitle', { name: start.toLocaleDateString(L.intl, { month: 'long', year: 'numeric' }) }) };
   };
+  let per;
   switch (report.mode) {
-    case 'lastWeek': return week(addDays(weekStart, -7));
-    case 'thisMonth': return month(0);
-    case 'lastMonth': return month(-1);
-    case 'custom': return { from: report.from, to: report.to, title: t('report.rangeTitle', { from: L.fmtDate(report.from, true), to: L.fmtDate(report.to, true) }) };
-    default: return week(weekStart);
+    case 'lastWeek': per = week(addDays(weekStart, -7)); break;
+    case 'thisMonth': per = month(0); break;
+    case 'lastMonth': per = month(-1); break;
+    case 'custom': per = { from: report.from, to: report.to, title: t('report.rangeTitle', { from: L.fmtDate(report.from, true), to: L.fmtDate(report.to, true) }) }; break;
+    default: per = week(weekStart);
   }
+  // What was chosen, then the first and last day, each on its own line.
+  const custom = report.mode === 'custom';
+  per.label = custom ? t('report.customShort') : t('report.' + report.mode);
+  per.fromText = L.fmtDate(per.from, custom);
+  per.toText = L.fmtDate(per.to, custom);
+  return per;
 }
 
 function renderReport() {
@@ -482,7 +501,8 @@ function renderReport() {
   function fillReport() {
     const { per, list, d } = totals();
     // Total first, then the entries of the chosen person for the chosen period.
-    $('reportBody').innerHTML = `<h2 id="ptitle" tabindex="-1">${esc(per.title)}</h2>
+    // One heading element (lines separated by <br>, with invisible commas), so a screen reader reads it in one go.
+    $('reportBody').innerHTML = `<h2 id="ptitle" tabindex="-1" class="period"><span class="p-mode">${esc(per.label)}</span><span class="pause">, </span><br><span>${esc(t('period.from'))}: ${esc(per.fromText)}</span><span class="pause">, </span><br><span>${esc(t('period.to'))}: ${esc(per.toText)}</span></h2>
       <p class="total">${esc(personLabel())}: ${esc(t('report.total', { d }))}</p>
       ${list.length ? `<ul>${list.map((e) => entryLi(e, false)).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
     bindEntryActions($('reportBody'), fillReport, () => $('ptitle'));

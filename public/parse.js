@@ -7,15 +7,17 @@
   const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
   // Decimal numbers like "1.5 hours" must not be mistaken for the date "1.5"
-  const DOTTED = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?!\d)(?!\s*(?:h\b|hr|hour|год))/;
+  const DOTTED = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?!\d)(?!\s*(?:h\b|hr|hour|год|std|stund))/;
 
   // Replaces spelled-out numbers ("fifty five") with digits.
-  function wordsToDigits(text, units, tens) {
+  function wordsToDigits(text, units, tens, compound) {
     const toks = text.split(' ');
     const out = [];
     for (let i = 0; i < toks.length; i++) {
       const w = toks[i];
-      if (w in tens) {
+      const c = compound && compound(w);
+      if (c != null) out.push(String(c));
+      else if (w in tens) {
         let n = tens[w];
         const nx = toks[i + 1];
         if (nx in units && units[nx] > 0 && units[nx] < 10) { n += units[nx]; i++; }
@@ -102,7 +104,53 @@
     zero: '0 хвилин',
   };
 
-  const LOCALES = { en, uk };
+  // ---------------------------------------------------------------- German
+  const DE_MONTHS = ['jan(?:uar)?', 'feb(?:ruar)?', 'mär(?:z)?', 'apr(?:il)?', 'mai', 'juni?', 'juli?', 'aug(?:ust)?', 'sep(?:t(?:ember)?)?', 'okt(?:ober)?', 'nov(?:ember)?', 'dez(?:ember)?'];
+  const DE_UNITS = { null: 0, ein: 1, eins: 1, eine: 1, einen: 1, zwei: 2, zwo: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, zwölf: 12, dreizehn: 13, vierzehn: 14, fünfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19 };
+  const DE_TENS = { zwanzig: 20, dreißig: 30, dreissig: 30, vierzig: 40, fünfzig: 50, sechzig: 60, siebzig: 70, achtzig: 80, neunzig: 90 };
+  const de = {
+    intl: 'de-DE',
+    units: DE_UNITS,
+    tens: DE_TENS,
+    // German writes compound numbers as one word: fünfundfünfzig = 55
+    compound(w) {
+      const m = /^(ein|zwei|drei|vier|fünf|sechs|sieben|acht|neun)und(zwanzig|dreißig|dreissig|vierzig|fünfzig|sechzig|siebzig|achtzig|neunzig)$/.exec(w);
+      return m ? DE_TENS[m[2]] + DE_UNITS[m[1]] : null;
+    },
+    normalize: (s) => s.replace(/\bund\b/g, ' ').replace(/\s+/g, ' ').trim(),
+    dayBefore: /vorgestern/,
+    yesterday: /gestern/,
+    today: /heute/,
+    monthPatterns: (i) => [{ re: new RegExp(`(?:^|\\s)(\\d{1,2})\\.?\\s*${DE_MONTHS[i]}(?![a-zäöü])(?:\\s+(\\d{4}))?`), d: 1, y: 2 }],
+    weekdays: [['montag', 1], ['dienstag', 2], ['mittwoch', 3], ['donnerstag', 4], ['freitag', 5], ['samstag', 6], ['sonnabend', 6], ['sonntag', 0]],
+    selfRe: /(^|\s)(ich|mir|mich|selbst|meine|mein)(\s|$)/,
+    nameMatch: (rest, name) => new RegExp(`(^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(rest), // also matches "Marias"
+    duration(text) {
+      let m;
+      if ((m = /(\d{1,2}):(\d{2})/.exec(text))) return +m[1] * 60 + +m[2];
+      if (/anderthalb/.test(text)) return 90;
+      if ((m = /(ein|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn)einhalb/.exec(text))) return DE_UNITS[m[1]] * 60 + 30;
+      if ((m = /(\d+)\s*einhalb/.exec(text))) return +m[1] * 60 + 30;
+      if (/dreiviertel\s?stunde/.test(text)) return 45;
+      if (/viertel\s?stunde/.test(text)) return 15;
+      if (/halbe?\s+stunde/.test(text)) return 30;
+      if ((m = /(\d+\.\d+)\s*(?:std\.?|stunden?|h)(?![a-zäöü])/.exec(text))) return Math.round(parseFloat(m[1]) * 60);
+      if ((m = /(\d+)\s*(?:std\.?|stunden?|h)(?![a-zäöü])(?:\s+(\d+)(?:\s*(?:min\w*|m)(?![a-zäöü]))?)?/.exec(text))) return +m[1] * 60 + (m[2] ? +m[2] : 0);
+      if ((m = /(?:^|\s)stunde(?![a-zäöü])(?:\s+(\d+))?/.exec(text))) return 60 + (m[1] ? +m[1] : 0);
+      if ((m = /(\d+)\s*(?:min\w*|m)(?![a-zäöü])/.exec(text))) return +m[1];
+      if ((m = /(?:^|\s)(\d+)(?:\s|$)/.exec(text))) return +m[1]; // a bare number means minutes
+      return null;
+    },
+    fmtDuration(h, m) {
+      const p = [];
+      if (h) p.push(`${h} ${h === 1 ? 'Stunde' : 'Stunden'}`);
+      if (m) p.push(`${m} ${m === 1 ? 'Minute' : 'Minuten'}`);
+      return p.join(' ');
+    },
+    zero: '0 Minuten',
+  };
+
+  const LOCALES = { en, uk, de };
 
   function forLang(lang) {
     const L = LOCALES[lang] || en;
@@ -140,8 +188,9 @@
     }
 
     function parseSentence(input, people, today = new Date()) {
-      const lowered = String(input || '').toLowerCase().replace(/[,;!?]/g, ' ');
-      const text = wordsToDigits(L.normalize(lowered), L.units, L.tens);
+      // "1,5" is a decimal number, other commas are just separators
+      const lowered = String(input || '').toLowerCase().replace(/(\d),(\d)/g, '$1.$2').replace(/[,;!?]/g, ' ');
+      const text = wordsToDigits(L.normalize(lowered), L.units, L.tens, L.compound);
       const { date, rest } = parseDate(text, today);
       const minutes = L.duration(rest);
       let person = null, best = 0;

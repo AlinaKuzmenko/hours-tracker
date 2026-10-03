@@ -102,3 +102,6 @@ button.picker { display: block; margin: 0; background: var(--bg); color: var(--f
 .stepper button.step { margin: 0; padding: 0; font-size: 1.5rem; line-height: 1; }
 .stepper input { text-align: center; touch-action: none; -moz-appearance: textfield; appearance: textfield; }
 .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+h2.period { font-size: 1.1rem; line-height: 1.5; }
+h2.period .p-mode { font-size: 1.3rem; }

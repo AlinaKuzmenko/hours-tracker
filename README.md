@@ -2,10 +2,10 @@
 
 A small, screen-reader-friendly website for logging worked hours (your own and those of people who help you) and viewing weekly/monthly reports per person.
 
-Built for a user who relies on VoiceOver: large high-contrast UI, every control is a native element, and results are announced via ARIA live regions. The UI language is Ukrainian.
+Built for a user who relies on VoiceOver: large high-contrast UI, every control is a native element, and results are announced via ARIA live regions. The UI is in German by default; English and Ukrainian are available for testing with `?lang=en` or `?lang=uk` (remembered in the browser; `?lang=de` switches back). To add a language, add a dictionary to `public/i18n.js` and a locale to `public/parse.js`.
 
 ## Features
-- Add an entry with one spoken/typed sentence, e.g. "Марія вчора година десять" (person, date, duration are parsed and confirmed before saving), or fill in the fields manually.
+- Add an entry with one spoken/typed sentence, e.g. "Maria gestern eine Stunde zehn" (person, date, duration are parsed and confirmed before saving), or fill in the fields manually.
 - Weekly and monthly reports per person, with navigation to previous periods.
 - Manage the list of people.
 - Sign in with Google (only whitelisted accounts); the browser stays signed in for a year.
