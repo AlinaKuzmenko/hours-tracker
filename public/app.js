@@ -106,12 +106,12 @@ function shell(title, inner) {
   document.title = title;
   const nav = [['add', t('nav.add')], ['report', t('nav.reports')], ['people', t('nav.people')]]
     .map(([k, n]) => `<button class="secondary" data-nav="${k}" ${view === k ? 'aria-current="page"' : ''}>${esc(n)}</button>`).join('');
-  // Sign out lives at the very bottom, away from the menu, and asks for confirmation.
+  // Sign out lives only at the bottom of the People page, away from the menu, and asks for confirmation.
   $app.innerHTML = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>
     <h1>${esc(title)}</h1>${inner}
-    <footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>`;
+    ${view === 'people' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
-  $('logout').onclick = async (e) => {
+  if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
     if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: 'orange', opener: b }))) return;
     await call('POST', '/api/logout').catch(() => {});

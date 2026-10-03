@@ -72,13 +72,6 @@ dialog h2 { margin-bottom: 1rem; }
 /* Invisible but inline punctuation: gives screen readers a pause without splitting the text into separate elements. */
 .pause { font-size: 0; line-height: 0; }
 
-/* Touch screens: scrolling stops at the start of each section instead of landing at random places.
-   Snap points: page top, manual form, list heading, every entry card, sign out. */
-@media (pointer: coarse) {
-  html { scroll-snap-type: y mandatory; scroll-padding-top: .5rem; }
-  main > nav, #f, #recentTitle, #listTitle, #ptitle, #reportBody h3, li.card, footer { scroll-snap-align: start; }
-}
-
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .presets button { margin: 0; }
 
