@@ -28,6 +28,19 @@
     return out.join(' ');
   }
 
+  // Simplified spelling used to compare names by sound: katharina and katerina both become "katarina".
+  const soundKey = (w) => w
+    .replace(/[^\p{L}]/gu, '')
+    .replace(/ß/g, 'ss').replace(/ph/g, 'f').replace(/th/g, 't').replace(/ck/g, 'k').replace(/c(?=[aouäöü])/g, 'k').replace(/ch/g, 'h')
+    .replace(/([aeiouäöüy])h/g, '$1').replace(/y/g, 'i').replace(/(.)\1+/g, '$1')
+    .replace(/[eä]/g, 'a');
+  function editDistance(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+
   const plural3 = (n, f) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? f[0] : a >= 2 && a <= 4 && (b < 12 || b > 14) ? f[1] : f[2]; };
 
   // ---------------------------------------------------------------- English
@@ -108,6 +121,13 @@
   const DE_MONTHS = ['jan(?:uar)?', 'feb(?:ruar)?', 'mär(?:z)?', 'apr(?:il)?', 'mai', 'juni?', 'juli?', 'aug(?:ust)?', 'sep(?:t(?:ember)?)?', 'okt(?:ober)?', 'nov(?:ember)?', 'dez(?:ember)?'];
   const DE_UNITS = { null: 0, ein: 1, eins: 1, eine: 1, einen: 1, zwei: 2, zwo: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, zwölf: 12, dreizehn: 13, vierzehn: 14, fünfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19 };
   const DE_TENS = { zwanzig: 20, dreißig: 30, dreissig: 30, vierzig: 40, fünfzig: 50, sechzig: 60, siebzig: 70, achtzig: 80, neunzig: 90 };
+  const DE_ORD = { erst: 1, zweit: 2, dritt: 3, viert: 4, fünft: 5, sechst: 6, siebt: 7, acht: 8, neunt: 9, zehnt: 10, elft: 11, zwölft: 12,
+    dreizehnt: 13, vierzehnt: 14, fünfzehnt: 15, sechzehnt: 16, siebzehnt: 17, achtzehnt: 18, neunzehnt: 19, zwanzigst: 20, dreißigst: 30, dreissigst: 30 };
+  function deOrdinal(stem) {
+    if (stem in DE_ORD) return DE_ORD[stem];
+    const m = /^(ein|zwei|drei|vier|fünf|sechs|sieben|acht|neun)und(zwanzigst|dreißigst|dreissigst)$/.exec(stem);
+    return m ? DE_ORD[m[2]] + DE_UNITS[m[1]] : null;
+  }
   const de = {
     intl: 'de-DE',
     units: DE_UNITS,
@@ -115,7 +135,10 @@
     // German writes compound numbers as one word: fünfundfünfzig = 55
     compound(w) {
       const m = /^(ein|zwei|drei|vier|fünf|sechs|sieben|acht|neun)und(zwanzig|dreißig|dreissig|vierzig|fünfzig|sechzig|siebzig|achtzig|neunzig)$/.exec(w);
-      return m ? DE_TENS[m[2]] + DE_UNITS[m[1]] : null;
+      if (m) return DE_TENS[m[2]] + DE_UNITS[m[1]];
+      // Ordinal words used for dates: "fünfzehnter Oktober" -> 15
+      const o = /^(.+?)(?:e|en|er|es|em)?$/.exec(w);
+      return o ? deOrdinal(o[1]) : null;
     },
     normalize: (s) => s.replace(/\bund\b/g, ' ').replace(/\s+/g, ' ').trim(),
     dayBefore: /vorgestern/,
@@ -198,6 +221,22 @@
         if (p.id === 'self') continue;
         const n = L.normalize(p.name.toLowerCase());
         if (n.length > best && L.nameMatch(rest, n)) { person = p; best = n.length; }
+      }
+      // Speech recognition often spells a name differently ("Katerina" / "Katharina"): fall back to a similar-sounding match.
+      if (!person) {
+        let bestDist = Infinity;
+        for (const p of people) {
+          if (p.id === 'self') continue;
+          const n = soundKey(L.normalize(p.name.toLowerCase()));
+          if (n.length < 3) continue;
+          for (const w of rest.split(' ')) {
+            const k = soundKey(w);
+            if (k.length < 3) continue;
+            const d = editDistance(k, n);
+            const allowed = n.length >= 7 ? 2 : 1;
+            if (d <= allowed && d < bestDist) { bestDist = d; person = p; }
+          }
+        }
       }
       if (!person && L.selfRe.test(rest)) person = people.find((p) => p.id === 'self') || null;
       return { personId: person && person.id, date, minutes: minutes && minutes > 0 ? minutes : null };
