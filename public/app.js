@@ -113,7 +113,7 @@ function fieldWithMic(inputHtml, id, label, submitForm, mic = true) {
 // The main way to enter data: a large mic button. The text field stays available for typing.
 function bigMic(id, label, submitForm) {
   if (!getSR()) return '';
-  return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button>`;
+  return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button><p id="micTrail" class="mic-trail" aria-hidden="true"></p>`;
 }
 // Does the sentence already say how long? Then it can be recognised (a missing person or date is handled there).
 function isCompleteSentence(text) {
@@ -146,17 +146,30 @@ function bindMics(root) {
       const rec = new (getSR())();
       rec.lang = SPEECH_LANG;
       rec.interimResults = true;
-      rec.continuous = true; // a pause while thinking does not end the recording
+      // A pause while thinking should not end the recording. If continuous mode has failed before on this device,
+      // the plain mode is used instead (remembered for this browser session).
+      let plain = false;
+      try { plain = sessionStorage.getItem('micPlain') === '1'; } catch {}
+      rec.continuous = !plain;
       rec.maxAlternatives = 1;
       const base = input.value.trim(); // what is already in the field stays; speech is appended to it
       let heard = '';
       let discarded = false, manualStop = false, failed = false;
+      // Diagnostics: a short trail of what the recogniser did, shown under the button so it can be reported.
+      const trailEl = root.querySelector('#micTrail');
+      const t0 = Date.now(), trail = [];
+      const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${rec.continuous ? 'continuous' : 'plain'}: ${trail.join(' › ')}`; };
+      ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch'].forEach((n) => rec.addEventListener(n, () => mark(n)));
+      mark('tap');
       rec.onresult = (e) => {
         if (discarded) return;
+        if (!trail.some((x) => x.startsWith('result'))) mark('result');
         heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
         input.value = (base ? base + ' ' : '') + heard;
       };
       rec.onerror = (e) => {
+        mark(`error:${e.error}`);
+        if (rec.continuous && e.error !== 'aborted') { try { sessionStorage.setItem('micPlain', '1'); } catch {} }
         const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
         // Chrome/Firefox/Edge on iPhone are not allowed to use speech recognition even when the microphone is switched on in Settings.
         const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
@@ -164,6 +177,8 @@ function bindMics(root) {
       };
       const release = () => { if (micStop === stop) micStop = null; if (micAbort === abort) micAbort = null; };
       rec.onend = () => {
+        mark('end');
+        if (rec.continuous && !heard && !discarded && !manualStop) { try { sessionStorage.setItem('micPlain', '1'); } catch {} } // nothing came out of continuous mode: use plain mode next time
         setListening(false);
         release();
         if (discarded || failed) return;
