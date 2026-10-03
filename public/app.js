@@ -81,6 +81,66 @@ async function withBusy(btn, label, fn) {
   }
 }
 
+// ---------- voice input ----------
+// A microphone button next to a text field: tap, speak, and the text lands in the field, so the keyboard
+// never has to open. Uses the browser's speech recognition (Chrome, Safari); where it is missing the buttons are not shown.
+const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
+const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
+let micStop = null; // stops the recording that is currently running
+
+// A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
+function fieldWithMic(inputHtml, id, label, submitForm) {
+  if (!getSR()) return inputHtml;
+  return `<div class="with-mic">${inputHtml}<button type="button" class="mic" data-mic="${id}" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button></div>`;
+}
+// The main way to enter data: a large mic button. The text field stays available for typing.
+function bigMic(id, label, submitForm) {
+  if (!getSR()) return '';
+  return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button>`;
+}
+function bindMics(root) {
+  root.querySelectorAll('[data-mic]').forEach((btn) => {
+    const input = root.querySelector('#' + btn.dataset.mic);
+    const startLabel = t('mic.start', { field: btn.dataset.field });
+    const setListening = (on) => {
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('listening', on);
+      btn.setAttribute('aria-label', on ? t('mic.stop') : startLabel);
+      const text = btn.querySelector('.mic-text');
+      if (text) text.textContent = on ? t('mic.stop') : t('mic.speak');
+    };
+    btn.onclick = () => {
+      if (micStop) { const stopping = btn.classList.contains('listening'); micStop(); if (stopping) return; }
+      const rec = new (getSR())();
+      rec.lang = SPEECH_LANG;
+      rec.interimResults = true;
+      rec.continuous = false;
+      rec.maxAlternatives = 1;
+      let heard = '';
+      rec.onresult = (e) => {
+        heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
+        input.value = heard;
+      };
+      rec.onerror = (e) => {
+        const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
+        if (e.error !== 'aborted') warn(t(key || 'mic.failed'));
+      };
+      rec.onend = () => {
+        setListening(false);
+        if (micStop === stop) micStop = null;
+        if (heard && btn.dataset.submit) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
+      };
+      let cancelled = false;
+      const stop = () => { cancelled = true; try { rec.stop(); } catch {} setListening(false); if (micStop === stop) micStop = null; };
+      micStop = stop;
+      setListening(true);
+      // A short pause so the screen reader's own announcement of the button is not picked up as speech.
+      setTimeout(() => { if (!cancelled) { try { rec.start(); } catch { stop(); } } }, 600);
+    };
+  });
+}
+
 // ---------- login ----------
 function renderLogin() {
   document.title = t('login.title');
@@ -115,6 +175,7 @@ function shell(title, inner, first) {
   $app.innerHTML = `${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
     ${view === 'add' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
+  bindMics($app);
   if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
     if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: 'orange', opener: b }))) return;
@@ -183,18 +244,21 @@ const personOptions = () => state.people.map((p) => ({ value: p.id, text: person
 // ---------- number stepper ----------
 // A number field with - / + buttons. Also: arrow keys, and dragging up/down on touch screens.
 // The value is always kept within min..max.
-function stepperHtml(id, label, min, max, value) {
+function stepperHtml(id, label, min, max, value, big = 1) {
   return `<label for="${id}">${esc(label)}</label>
     <div class="stepper">
-      <button type="button" class="step" data-step="-1" data-for="${id}" aria-label="${esc(t('step.less', { field: label }))}">&minus;</button>
-      <input id="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${value}">
-      <button type="button" class="step" data-step="1" data-for="${id}" aria-label="${esc(t('step.more', { field: label }))}">+</button>
+      <button type="button" class="step" data-step="-1" data-for="${id}" aria-label="${esc(t('step.less', { field: big > 1 ? `${label} (${big})` : label }))}">&minus;</button>
+      <input id="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${value}" data-big="${big}">
+      <button type="button" class="step" data-step="1" data-for="${id}" aria-label="${esc(t('step.more', { field: big > 1 ? `${label} (${big})` : label }))}">+</button>
     </div>`;
 }
 function makeStepper(root, id) {
   const input = root.querySelector('#' + id);
   const min = Number(input.min), max = Number(input.max);
+  const big = Number(input.dataset.big || 1); // the +/- buttons and dragging move in steps of this size (5 for minutes)
   const clamp = (n) => Math.min(max, Math.max(min, Math.round(Number(n) || 0)));
+  // Next value in a direction; with a coarse step it snaps to the grid (12 -> 15 or 10).
+  const nudge = (n, dir) => (big > 1 ? (dir > 0 ? Math.floor(n / big) * big + big : Math.ceil(n / big) * big - big) : n + dir);
   const setVal = (n) => { input.value = clamp(n); input.dispatchEvent(new Event('change', { bubbles: true })); };
   const fit = () => { input.value = clamp(input.value); };
   input.addEventListener('blur', fit);
@@ -205,7 +269,7 @@ function makeStepper(root, id) {
   });
   root.querySelectorAll(`.step[data-for="${id}"]`).forEach((b) => {
     let timer;
-    const bump = () => setVal(Number(input.value) + Number(b.dataset.step));
+    const bump = () => setVal(nudge(Number(input.value), Number(b.dataset.step)));
     b.onclick = (e) => { if (e.detail === 0 || !b._held) bump(); b._held = false; }; // keyboard / screen reader activation
     b.onpointerdown = (e) => { // press and hold repeats
       b._held = false;
@@ -222,7 +286,9 @@ function makeStepper(root, id) {
     if (!dragging && Math.abs(dy) < 10) return;
     dragging = true;
     input.blur();
-    input.value = clamp(startVal + Math.round(dy / 24));
+    let v = startVal;
+    for (let i = 0, n = Math.abs(Math.round(dy / 24)); i < n; i++) v = clamp(nudge(v, dy > 0 ? 1 : -1));
+    input.value = clamp(v);
   });
   const end = () => { if (dragging) input.dispatchEvent(new Event('change', { bubbles: true })); startY = null; dragging = false; };
   input.addEventListener('pointerup', end);
@@ -272,7 +338,7 @@ function editDialog(e, opener, save) {
       ${pickerHtml('e-who', t('add.who'), personOptions(), e.personId)}
       ${whenHtml('e-')}
       ${stepperHtml('e-h', t('add.hours'), 0, 24, Math.floor(e.minutes / 60))}
-      ${stepperHtml('e-m', t('add.minutes'), 0, 59, e.minutes % 60)}
+      ${stepperHtml('e-m', t('add.minutes'), 0, 59, e.minutes % 60, 5)}
       <p id="e-err" class="msg" role="alert" hidden></p>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button>
@@ -352,7 +418,7 @@ function renderAdd() {
         ${pickerHtml('who', t('add.who'), personOptions(), 'self')}
         ${whenHtml('')}
         ${stepperHtml('h', t('add.hours'), 0, 24, 0)}
-        ${stepperHtml('m', t('add.minutes'), 0, 59, 0)}
+        ${stepperHtml('m', t('add.minutes'), 0, 59, 0, 5)}
         <button type="submit" id="save">${esc(t('add.save'))}</button>
       </fieldset>
     </form>
@@ -363,6 +429,7 @@ function renderAdd() {
     <form id="say">
       <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
       <p id="ex" class="hint">${esc(t('add.example'))}</p>
+      ${bigMic('sentence', t('add.sentenceLabel'), 'say')}
       <input id="sentence" autocomplete="off" autocapitalize="off" enterkeyhint="go">
       <button type="submit">${esc(t('add.recognize'))}</button>
     </form>`);
@@ -476,9 +543,9 @@ function renderReport() {
       <summary>${esc(t('report.customTitle'))}</summary>
       <form id="range">
         <label for="from">${esc(t('report.from'))}</label>
-        <input id="from" autocomplete="off">
+        ${fieldWithMic('<input id="from" autocomplete="off">', 'from', t('report.from'))}
         <label for="to">${esc(t('report.to'))}</label>
-        <input id="to" autocomplete="off">
+        ${fieldWithMic('<input id="to" autocomplete="off">', 'to', t('report.to'))}
         <button type="submit">${esc(t('report.show'))}</button>
       </form>
     </details>
@@ -534,9 +601,9 @@ function renderPeople() {
     <h2>${esc(t('people.addTitle'))}</h2>
     <form id="f">
       <label for="name">${esc(t('people.nameLabel'))}</label>
-      <input id="name" autocomplete="off">
+      ${fieldWithMic('<input id="name" autocomplete="off">', 'name', t('people.nameLabel'))}
       <label for="role">${esc(t('people.roleLabel'))}</label>
-      <input id="role" autocomplete="off">
+      ${fieldWithMic('<input id="role" autocomplete="off">', 'role', t('people.roleLabel'))}
       <button type="submit" id="add">${esc(t('people.add'))}</button>
     </form>`);
 

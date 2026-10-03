@@ -1,4 +1,4 @@
-:root { --bg: #fff; --fg: #000; --accent: #000; --line: #000; --danger: #b00020; --focus: #0a4fd6; }
+:root { --bg: #fff; --fg: #000; --accent: #000; --line: #000; --danger: #d32f2f; --focus: #0a4fd6; }
 * { box-sizing: border-box; }
 html { font-size: 26px; -webkit-text-size-adjust: 100%; color-scheme: light; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, Helvetica, Arial, sans-serif; line-height: 1.5; }
@@ -14,7 +14,7 @@ input, select, button { font: inherit; min-height: 3rem; -webkit-appearance: non
 button { background: var(--fg); color: var(--bg); font-weight: bold; cursor: pointer; margin-top: 1.25rem; }
 button.secondary { background: var(--bg); color: var(--fg); }
 button[aria-current="page"], button[aria-current="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-button.danger { background: var(--bg); color: var(--danger); border-color: var(--danger); }
+button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
 button.orange { background: #ff9a1f; color: #000; border-color: #7a4300; }
 button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -105,3 +105,16 @@ button.picker { display: block; margin: 0; background: var(--bg); color: var(--f
 
 h2.period { font-size: 1.1rem; line-height: 1.5; }
 h2.period .p-mode { font-size: 1.3rem; }
+
+/* Voice input: mic button next to a text field */
+.with-mic { display: grid; grid-template-columns: 1fr 3.4rem; gap: .6rem; align-items: stretch; }
+.with-mic button.mic { margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.with-mic button.mic.listening { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 .35rem rgba(211, 47, 47, .4); } }
+@media (prefers-reduced-motion: reduce) { .with-mic button.mic.listening { animation: none; } }
+
+/* Large mic button: the main way to enter data */
+button.mic-big { display: flex; align-items: center; justify-content: center; gap: .7rem; width: 100%; min-height: 4.5rem; margin: 1rem 0 0; font-size: 1.25rem; }
+button.mic-big svg { width: 34px; height: 34px; flex: none; }
+button.mic-big.listening { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulse 1.1s ease-in-out infinite; }
+#sentence { margin-top: 1rem; }
