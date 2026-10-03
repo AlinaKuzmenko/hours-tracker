@@ -13,7 +13,7 @@ label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
 input, select, button { font: inherit; min-height: 3rem; -webkit-appearance: none; appearance: none; touch-action: manipulation; width: 100%; padding: .6rem .8rem; border: 3px solid var(--fg); border-radius: .4rem; background: var(--bg); color: var(--fg); }
 button { background: var(--fg); color: var(--bg); font-weight: bold; cursor: pointer; margin-top: 1.25rem; }
 button.secondary { background: var(--bg); color: var(--fg); }
-button[aria-current="page"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button[aria-current="page"], button[aria-current="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 button.danger { background: var(--bg); color: var(--danger); border-color: var(--danger); }
 button.orange { background: #ff9a1f; color: #000; border-color: #7a4300; }
 button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
@@ -55,17 +55,37 @@ dialog #dlg-info { margin: 0 0 1rem; line-height: 1.4; overflow-wrap: anywhere; 
 dialog .dlg-actions { display: grid; gap: 1.25rem; margin-top: 1.25rem; }
 dialog button { margin: 0; }
 
-.entry-text { margin: 0 0 1rem; font-size: 1rem; line-height: 1.5; }
+.entry-text { margin: 0; font-size: 1rem; line-height: 1.5; }
 .e-name, .e-dur { font-weight: bold; font-size: 1.2rem; }
-.entry-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.entry-actions button { margin: 0; min-height: 2.6rem; font-size: .85rem; padding: .4rem .5rem; }
-li.card .entry-actions { margin-top: .25rem; }
-ul > li button { margin-top: 1rem; }
+li.entry { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.entry-actions { display: flex; gap: .75rem; flex: none; }
+.entry-actions button.icon { margin: 0; width: 2.9rem; min-height: 2.9rem; height: 2.9rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+button.icon svg { display: block; }
+button.icon[aria-busy="true"]::after { display: none; }
+button.icon[aria-busy="true"] svg { opacity: .4; }
 #peopleList li { display: flex; flex-direction: column; font-weight: bold; font-size: 1.15rem; }
 dialog .row { margin-top: 0; }
 dialog .msg { margin: 1rem 0 0; }
 dialog h2 { margin-bottom: 1rem; }
-@media (max-width: 480px) { nav { gap: .6rem; } .entry-actions { gap: .75rem; } }
+@media (max-width: 480px) { nav { gap: .6rem; } .entry-actions { flex-direction: column; gap: .6rem; } .entry-actions button.icon { width: 2.7rem; min-height: 2.7rem; height: 2.7rem; } }
 
 /* Invisible but inline punctuation: gives screen readers a pause without splitting the text into separate elements. */
 .pause { font-size: 0; line-height: 0; }
+
+/* Touch screens: scrolling stops at the start of each section instead of landing at random places.
+   Snap points: page top, manual form, list heading, every entry card, sign out. */
+@media (pointer: coarse) {
+  html { scroll-snap-type: y mandatory; scroll-padding-top: .5rem; }
+  main > nav, #f, #recentTitle, #listTitle, #ptitle, #reportBody h3, li.card, footer { scroll-snap-align: start; }
+}
+
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.presets button { margin: 0; }
+
+/* Reports: compact controls so the results start sooner */
+.presets { gap: .75rem; }
+main > h2 { margin: 1rem 0 .6rem; padding-top: .75rem; }
+details#custom { margin-top: 1.25rem; }
+details#custom summary { cursor: pointer; font-weight: bold; font-size: 1.1rem; padding: .7rem 1rem; border: 3px solid var(--fg); border-radius: .4rem; min-height: 3rem; }
+details#custom[open] summary { margin-bottom: .5rem; }
+#reportBody > h2:first-child { margin-top: 1.5rem; }

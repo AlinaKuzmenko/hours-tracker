@@ -7,7 +7,7 @@ const { iso, addDays } = P;
 
 let state = { people: [], entries: [] };
 let view = 'add';
-let report = { kind: 'week', offset: 0 };
+let report = { mode: 'thisWeek', personId: 'all' };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const personName = (id) => (id === 'self' ? t('me') : (state.people.find((p) => p.id === id) || { name: '?' }).name);
@@ -69,13 +69,14 @@ function confirmDialog({ title, lines = [], detail, okLabel, okClass = 'danger-s
 // so the button keeps keyboard/screen-reader focus; screen readers announce it as "dimmed".
 async function withBusy(btn, label, fn) {
   if (btn.getAttribute('aria-disabled') === 'true') return;
-  const orig = btn.textContent;
+  const icon = btn.classList.contains('icon'); // icon buttons keep their picture; they only dim and spin
+  const orig = btn.innerHTML;
   btn.setAttribute('aria-disabled', 'true');
   btn.setAttribute('aria-busy', 'true');
-  btn.textContent = label;
+  if (!icon) btn.textContent = label;
   say(label);
   try { return await fn(); } finally {
-    if (btn.isConnected) { btn.removeAttribute('aria-disabled'); btn.removeAttribute('aria-busy'); btn.textContent = orig; }
+    if (btn.isConnected) { btn.removeAttribute('aria-disabled'); btn.removeAttribute('aria-busy'); btn.innerHTML = orig; }
   }
 }
 
@@ -156,14 +157,17 @@ function makeWhen(root, pre) {
   };
 }
 
-// One entry as a card: text is a single element (one screen-reader stop), then Edit / Delete.
+const ICON_EDIT = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg>';
+const ICON_DELETE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
+
+// One entry as a card: the text is a single element (one screen-reader stop), with small pencil / trash buttons beside it.
 function entryLi(e, withPerson) {
   const parts = [...(withPerson ? [`<span class="e-name">${esc(personName(e.personId))}</span>`] : []), `<span>${esc(L.fmtDate(e.date))}</span>`, `<span class="e-dur">${esc(L.fmtDuration(e.minutes))}</span>`];
   const label = `${withPerson ? personName(e.personId) + ', ' : ''}${L.fmtDate(e.date)}: ${L.fmtDuration(e.minutes)}`;
-  return `<li class="card"><p class="entry-text">${parts.join('<span class="pause">, </span><br>')}</p>
+  return `<li class="card entry"><p class="entry-text">${parts.join('<span class="pause">, </span><br>')}</p>
     <div class="entry-actions">
-      <button class="secondary" data-edit="${e.id}" aria-label="${esc(t('entry.editAria', { label }))}">${esc(t('entry.edit'))}</button>
-      <button class="danger" data-del="${e.id}" aria-label="${esc(t('entry.deleteAria', { label }))}">${esc(t('entry.delete'))}</button>
+      <button class="icon secondary" data-edit="${e.id}" title="${esc(t('entry.edit'))}" aria-label="${esc(t('entry.editAria', { label }))}">${ICON_EDIT}</button>
+      <button class="icon danger" data-del="${e.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('entry.deleteAria', { label }))}">${ICON_DELETE}</button>
     </div></li>`;
 }
 
@@ -328,51 +332,88 @@ function renderAdd() {
 }
 
 // ---------- reports ----------
+const PRESETS = ['thisWeek', 'lastWeek', 'thisMonth', 'lastMonth'];
+
+// The dates come from the device clock (new Date()), so "this week" always matches the user's own calendar.
 function period() {
   const now = new Date(); now.setHours(0, 0, 0, 0);
-  if (report.kind === 'week') {
-    const start = addDays(now, -((now.getDay() + 6) % 7) + report.offset * 7);
-    const end = addDays(start, 6);
-    return { from: iso(start), to: iso(end), title: t('report.weekTitle', { from: L.fmtDate(iso(start)), to: L.fmtDate(iso(end)) }) };
+  const weekStart = addDays(now, -((now.getDay() + 6) % 7));
+  const week = (start) => { const end = addDays(start, 6); return { from: iso(start), to: iso(end), title: t('report.weekTitle', { from: L.fmtDate(iso(start)), to: L.fmtDate(iso(end)) }) }; };
+  const month = (offset) => {
+    const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    return { from: iso(start), to: iso(end), title: t('report.monthTitle', { name: start.toLocaleDateString(L.intl, { month: 'long', year: 'numeric' }) }) };
+  };
+  switch (report.mode) {
+    case 'lastWeek': return week(addDays(weekStart, -7));
+    case 'thisMonth': return month(0);
+    case 'lastMonth': return month(-1);
+    case 'custom': return { from: report.from, to: report.to, title: t('report.rangeTitle', { from: L.fmtDate(report.from, true), to: L.fmtDate(report.to, true) }) };
+    default: return week(weekStart);
   }
-  const start = new Date(now.getFullYear(), now.getMonth() + report.offset, 1);
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-  const name = start.toLocaleDateString(L.intl, { month: 'long', year: 'numeric' });
-  return { from: iso(start), to: iso(end), title: t('report.monthTitle', { name }) };
 }
 
 function renderReport() {
-  const wk = report.kind === 'week';
+  const people = [['all', t('report.everyone')], ...state.people.map((p) => [p.id, personName(p.id)])];
+  if (report.personId !== 'all' && !state.people.some((p) => p.id === report.personId)) report.personId = 'all';
+  const personLabel = () => (people.find(([id]) => id === report.personId) || [, ''])[1];
+
   shell(t('report.title'), `
-    <label for="kind">${esc(t('report.period'))}</label>
-    <select id="kind"><option value="week" ${wk ? 'selected' : ''}>${esc(t('report.week'))}</option>
-      <option value="month" ${wk ? '' : 'selected'}>${esc(t('report.month'))}</option></select>
-    <div class="row">
-      <button id="prev" class="secondary">${esc(t(wk ? 'report.prevWeek' : 'report.prevMonth'))}</button>
-      <button id="next" class="secondary" ${report.offset >= 0 ? 'aria-disabled="true"' : ''}>${esc(t(wk ? 'report.nextWeek' : 'report.nextMonth'))}</button>
-    </div>
+    <h2>${esc(t('report.people'))}</h2>
+    <div class="presets">${people.map(([id, n]) => `<button class="secondary" data-person="${id}">${esc(n)}</button>`).join('')}</div>
+    <h2>${esc(t('report.period'))}</h2>
+    <div class="presets">${PRESETS.map((k) => `<button class="secondary" data-preset="${k}">${esc(t('report.' + k))}</button>`).join('')}</div>
+    <details id="custom">
+      <summary>${esc(t('report.customTitle'))}</summary>
+      <form id="range">
+        <label for="from">${esc(t('report.from'))}</label>
+        <input id="from" autocomplete="off">
+        <label for="to">${esc(t('report.to'))}</label>
+        <input id="to" autocomplete="off">
+        <button type="submit">${esc(t('report.show'))}</button>
+      </form>
+    </details>
     <div id="reportBody"></div>`);
 
-  function fillReport() {
+  function markActive() {
+    const set = (sel, key, val) => $app.querySelectorAll(sel).forEach((b) => {
+      if (b.dataset[key] === val) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+    });
+    set('[data-preset]', 'preset', report.mode);
+    set('[data-person]', 'person', report.personId);
+  }
+  function totals() {
     const per = period();
-    const inRange = state.entries.filter((e) => e.date >= per.from && e.date <= per.to).sort((a, b) => a.date.localeCompare(b.date));
-    const total = inRange.reduce((s, e) => s + e.minutes, 0);
-    const sections = state.people.map((p) => {
-      const es = inRange.filter((e) => e.personId === p.id);
-      const sum = es.reduce((s, e) => s + e.minutes, 0);
-      return `<h3>${esc(personName(p.id))}: ${esc(L.fmtDuration(sum))}</h3>
-        ${es.length ? `<ul>${es.map((e) => entryLi(e, false)).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
-    }).join('');
+    const list = state.entries
+      .filter((e) => e.date >= per.from && e.date <= per.to && (report.personId === 'all' || e.personId === report.personId))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { per, list, d: L.fmtDuration(list.reduce((s, e) => s + e.minutes, 0)) };
+  }
+  function fillReport() {
+    const { per, list, d } = totals();
+    // Total first, then the entries of the chosen person for the chosen period.
     $('reportBody').innerHTML = `<h2 id="ptitle" tabindex="-1">${esc(per.title)}</h2>
-      <p class="total">${esc(t('report.total', { d: L.fmtDuration(total) }))}</p>${sections}`;
+      <p class="total">${esc(personLabel())}: ${esc(t('report.total', { d }))}</p>
+      ${list.length ? `<ul>${list.map((e) => entryLi(e, report.personId === 'all')).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
     bindEntryActions($('reportBody'), fillReport, () => $('ptitle'));
+    markActive();
   }
   fillReport();
 
-  const again = () => { renderReport(); const h = $('ptitle'); h.focus(); say(period().title); };
-  $('kind').onchange = () => { report = { kind: $('kind').value, offset: 0 }; again(); };
-  $('prev').onclick = () => { report.offset--; again(); };
-  $('next').onclick = () => { if (report.offset < 0) { report.offset++; again(); } };
+  // Focus stays on the pressed button; the new selection is announced instead.
+  const announce = () => { const { per, d } = totals(); say(t('report.summary', { name: personLabel(), title: per.title, d })); };
+  $app.querySelectorAll('[data-person]').forEach((b) => (b.onclick = () => { report.personId = b.dataset.person; fillReport(); announce(); }));
+  $app.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => { report = { mode: b.dataset.preset, personId: report.personId }; fillReport(); announce(); }));
+  $('range').onsubmit = (e) => {
+    e.preventDefault();
+    const parse = (v) => L.parseDate(String(v).toLowerCase().replace(/\s+/g, ' ').trim(), new Date(), true).date;
+    const from = parse($('from').value), to = parse($('to').value);
+    if (!from || !to) return warn(t('msg.badRange'));
+    if (from > to) return warn(t('msg.rangeOrder'));
+    report = { mode: 'custom', from, to, personId: report.personId };
+    fillReport();
+    announce();
+  };
 }
 
 // ---------- people ----------

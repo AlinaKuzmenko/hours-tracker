@@ -107,7 +107,8 @@
   function forLang(lang) {
     const L = LOCALES[lang] || en;
 
-    function parseDate(text, today) {
+    // Without a year, a date in the future is read as last year's (entries are about the past) unless allowFuture is set (reports).
+    function parseDate(text, today, allowFuture = false) {
       let m;
       for (const [key, off] of [['dayBefore', -2], ['yesterday', -1], ['today', 0]]) {
         if ((m = L[key].exec(text))) return { date: iso(addDays(today, off)), rest: text.replace(m[0], ' ') };
@@ -116,7 +117,7 @@
         let y = m[3] ? +m[3] : today.getFullYear();
         if (y < 100) y += 2000;
         const d = new Date(y, +m[2] - 1, +m[1]);
-        if (!m[3] && d > today) d.setFullYear(y - 1);
+        if (!m[3] && !allowFuture && d > today) d.setFullYear(y - 1);
         return { date: iso(d), rest: text.replace(m[0], ' ') };
       }
       for (let i = 0; i < 12; i++) {
@@ -124,7 +125,7 @@
           if ((m = re.exec(text))) {
             const y = m[gy] ? +m[gy] : today.getFullYear();
             const d = new Date(y, i, +m[gd]);
-            if (!m[gy] && d > today) d.setFullYear(y - 1);
+            if (!m[gy] && !allowFuture && d > today) d.setFullYear(y - 1);
             return { date: iso(d), rest: text.replace(m[0], ' ') };
           }
         }
