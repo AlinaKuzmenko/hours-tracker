@@ -144,3 +144,7 @@ li.card.entry .card-pencil { flex: none; opacity: .7; }
 .date-row button.mic { margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .date-row button.mic.listening { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulse 1.1s ease-in-out infinite; }
 @media (max-width: 480px) { .date-row.has-mic { grid-template-columns: 2.5rem 1fr 2.5rem 2.5rem; gap: .35rem; } .date-row.has-mic input[type="date"] { font-size: .75rem; padding-left: .3rem; padding-right: .3rem; } }
+
+/* Small mic buttons: round and light blue like the big one, same footprint as before */
+.with-mic button.mic, .date-row button.mic { aspect-ratio: 1; height: auto; min-height: 0; align-self: center; border-radius: 50%; background: #4fc3f7; color: #000; border: 3px solid #0277bd; }
+.with-mic button.mic.listening, .date-row button.mic.listening { background: var(--danger); border-color: #8e0000; color: #fff; }
