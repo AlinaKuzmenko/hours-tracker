@@ -36,3 +36,8 @@ li { overflow-wrap: anywhere; }
   .row { gap: .5rem; }
 }
 @media (min-width: 900px) { html { font-size: 28px; } }
+
+button:disabled { opacity: .7; cursor: progress; }
+button[aria-busy="true"]::after { content: ""; display: inline-block; width: .8em; height: .8em; margin-left: .6em; vertical-align: -.05em; border: .15em solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::after { animation: none; } }

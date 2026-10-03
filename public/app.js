@@ -20,6 +20,18 @@ async function call(method, url, data) {
   if (!r.ok) throw new Error(j.error || 'Помилка');
   return j;
 }
+// Disables the button and shows a loader while the request runs, so repeated taps cannot create duplicates.
+async function withBusy(btn, label, fn) {
+  if (btn.disabled) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  btn.textContent = label;
+  say(label);
+  try { return await fn(); } finally {
+    if (btn.isConnected) { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.textContent = orig; }
+  }
+}
 async function refresh() { state = await call('GET', '/api/data'); }
 
 function focusHeading() { const h = $app.querySelector('h1'); if (h) { h.tabIndex = -1; h.focus(); } }
@@ -34,7 +46,12 @@ function renderLogin() {
     ${msg ? `<p class="msg" role="alert">${msg}</p>` : ''}
     <button id="google">Увійти через Google</button>
     <p class="hint">Після входу цей комп'ютер запамʼятає вас.</p>`;
-  $app.querySelector('#google').onclick = () => { location.href = '/api/auth/google'; };
+  $app.querySelector('#google').onclick = (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.setAttribute('aria-busy', 'true');
+    e.currentTarget.textContent = 'Переходжу до Google…';
+    location.href = '/api/auth/google';
+  };
   focusHeading();
 }
 
@@ -64,10 +81,12 @@ function entryLi(e, withPerson) {
 function bindDelete(after) {
   $app.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
     if (!confirm('Видалити цей запис?')) return;
-    await call('DELETE', '/api/entries/' + b.dataset.del);
-    await refresh();
-    after();
-    say('Запис видалено');
+    await withBusy(b, 'Видаляю…', async () => {
+      await call('DELETE', '/api/entries/' + b.dataset.del);
+      await refresh();
+      after();
+      say('Запис видалено');
+    });
   }));
 }
 
@@ -146,11 +165,15 @@ function renderAdd() {
     const date = currentDate();
     if (!min || min <= 0) return warn('Вкажіть кількість годин або хвилин.');
     if (!date) return warn('Не вдалося зрозуміти дату. Напишіть, наприклад, 15.09');
-    await call('POST', '/api/entries', { personId: $('who').value, date, minutes: min });
-    await refresh();
-    renderAdd();
-    $app.querySelector('#sentence').focus();
-    say(`Збережено: ${text}.`);
+    await withBusy($('save'), 'Зберігаю…', async () => {
+      try {
+        await call('POST', '/api/entries', { personId: $('who').value, date, minutes: min });
+      } catch (err) { return err.message !== 'auth' && warn('Не вдалося зберегти. Спробуйте ще раз.'); }
+      await refresh();
+      renderAdd();
+      $app.querySelector('#sentence').focus();
+      say(`Збережено: ${text}.`);
+    });
   };
   bindDelete(renderAdd);
 }
@@ -207,21 +230,25 @@ function renderPeople() {
     <form id="f">
       <label for="name">Додати людину (наприклад, Марія, вчителька)</label>
       <input id="name" autocomplete="off">
-      <button type="submit">Додати</button>
+      <button type="submit" id="add">Додати</button>
     </form>`);
   const $ = (id) => $app.querySelector('#' + id);
   $('f').onsubmit = async (e) => {
     e.preventDefault();
     const name = $('name').value.trim();
     if (!name) return warn('Введіть імʼя.');
-    try { await call('POST', '/api/people', { name }); } catch (err) { return warn(err.message); }
-    await refresh(); renderPeople(); $app.querySelector('#name').focus(); say(`Додано: ${name}`);
+    await withBusy($('add'), 'Додаю…', async () => {
+      try { await call('POST', '/api/people', { name }); } catch (err) { return warn(err.message); }
+      await refresh(); renderPeople(); $app.querySelector('#name').focus(); say(`Додано: ${name}`);
+    });
   };
   $app.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
     const n = personName(b.dataset.rm);
     if (!confirm(`Видалити ${n} і всі її записи? Це не можна скасувати.`)) return;
-    await call('DELETE', '/api/people/' + b.dataset.rm);
-    await refresh(); renderPeople(); $app.querySelector('h1').focus(); say(`Видалено: ${n}`);
+    await withBusy(b, 'Видаляю…', async () => {
+      await call('DELETE', '/api/people/' + b.dataset.rm);
+      await refresh(); renderPeople(); $app.querySelector('h1').focus(); say(`Видалено: ${n}`);
+    });
   }));
 }
 
