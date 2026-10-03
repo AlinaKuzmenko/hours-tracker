@@ -99,7 +99,6 @@ const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-let micUsed = false; // a voice recording was started on this page
 let micStop = null; // finishes the running recording and uses what it heard
 let micAbort = null; // cancels the running recording and drops what it heard (clear button, closing a dialog)
 
@@ -155,7 +154,6 @@ function bindMics(root) {
       // Tapping the button while it is recording finishes the recording (and uses the text).
       if (btn.classList.contains('listening') && micStop) { micStop(); return; }
       if (micAbort) micAbort(); // never two recordings at once
-      micUsed = true;
       const base = input.value.trim(); // what is already in the field stays; speech is appended to it
       let rec = null;
       let heard = '';
@@ -312,13 +310,13 @@ function shell(title, inner, first) {
   const menu = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>`;
   const top = `<h1>${esc(title)}</h1>`;
   $app.innerHTML = `${menu}${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
-    ${view === 'add' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
+    ${view === 'add' ? `<footer><button id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   bindMics($app);
   bindDayArrows($app);
   if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
-    if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: 'orange', opener: b }))) return;
+    if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: '', opener: b }))) return;
     await call('POST', '/api/logout').catch(() => {});
     renderLogin();
   };
@@ -490,7 +488,7 @@ const ICON_DELETE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none"
 
 // One entry as a card: the text is a single element (one screen-reader stop), with small pencil / trash buttons beside it.
 function entryLi(e, withPerson) {
-  const parts = [...(withPerson ? [`<span class="e-name">${esc(personName(e.personId))}</span>`] : []), `<span>${esc(L.fmtDate(e.date))}</span>`, `<span class="e-dur">${esc(L.fmtDuration(e.minutes))}</span>`];
+  const parts = [...(withPerson ? [`<span class="e-name">${esc(personName(e.personId))}</span>`] : []), `<span>${esc(L.fmtDate(e.date))}</span>`, ...[Math.floor(e.minutes / 60) * 60, e.minutes % 60].filter(Boolean).map((x) => L.fmtDuration(x)).map((x) => `<span class="e-dur">${esc(x)}</span>`)]; // hours and minutes on separate lines
   const label = `${withPerson ? personName(e.personId) + ', ' : ''}${L.fmtDate(e.date)}: ${L.fmtDuration(e.minutes)}`;
   return `<li class="card entry"><p class="entry-text">${parts.join('<span class="pause">, </span><br>')}</p>
     <div class="entry-actions">
@@ -713,15 +711,7 @@ function renderAdd() {
       } catch (err) { return err.message !== 'auth' && warn(t('msg.saveFailed')); }
       await refresh();
       const message = t('msg.saved', { summary: text });
-      // Safari on iPhone only records reliably on a freshly loaded page, so after a voice entry the page is
-      // reloaded: everything (fields, picker, date, microphone) is back to its initial state. The confirmation
-      // is announced after the reload.
-      if (micUsed) {
-        try { sessionStorage.setItem('flash', message); } catch {}
-        location.reload();
-        return;
-      }
-      // Otherwise reset everything in place. Focus is deliberately not moved.
+      // Reset everything in place (no page reload). Focus is deliberately not moved.
       $('sentence').value = '';
       who.set('self');
       when.set(iso(new Date()));
@@ -886,10 +876,5 @@ async function start() {
   view = 'add';
   render();
   focusHeading();
-  // Confirmation of an entry saved just before the page was reloaded (see the add form).
-  try {
-    const flash = sessionStorage.getItem('flash');
-    if (flash) { sessionStorage.removeItem('flash'); setTimeout(() => say(flash), 900); }
-  } catch {}
 }
 start();
