@@ -90,6 +90,32 @@ function confirmDialog({ title, lines = [], detail, okLabel, okClass = 'danger-s
   });
 }
 
+// Information dialog with one Close button. Like the confirmation dialog it is one single text element for screen readers.
+function infoDialog({ title, lines, opener }) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.setAttribute('aria-labelledby', 'dlg-info');
+    const body = lines.map((l) => `<span class="dlg-gap">${esc(l)}</span>`).join('<br>'); // the lines already end with a full stop
+    d.innerHTML = `<p id="dlg-info" tabindex="-1"><span class="dlg-title">${esc(title)}</span><span class="pause">. </span><br>${body}</p>
+      <div class="dlg-actions"><button type="button" data-act="close">${esc(t('dlg.close'))}</button></div>`;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (d.open) d.close();
+      d.remove();
+      if (opener) focusSoon(opener, 0);
+      resolve();
+    };
+    d.querySelector('[data-act=close]').onclick = finish;
+    d.addEventListener('cancel', finish);
+    d.addEventListener('close', finish);
+    document.body.appendChild(d);
+    d.showModal();
+    d.querySelector('#dlg-info').focus();
+  });
+}
+
 // Blocks repeated taps while a request runs and shows a loader. Uses aria-disabled (not `disabled`)
 // so the button keeps keyboard/screen-reader focus; screen readers announce it as "dimmed".
 async function withBusy(btn, label, fn) {
@@ -115,6 +141,7 @@ const IS_TOUCH_DEVICE = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAg
 const voiceAvailable = () => !!getSR() && !IS_TOUCH_DEVICE;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
+const ICON_INFO = '<svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M12 10.5v7.5" fill="none"/><circle cx="12" cy="6.3" r="1.4" stroke="none"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 let micStop = null; // finishes the running recording and uses what it heard
 let micStopQuiet = null; // finishes the running recording, keeps what it heard in the field, but does not recognise it
@@ -693,12 +720,21 @@ function renderAdd() {
     <div id="recent"></div>
     <button type="button" class="secondary" id="more" hidden>${esc(t('add.showMore'))}</button>`, `
     <form id="say">
-      <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
+      <div class="label-row">
+        <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
+        <button type="button" class="info" id="info" aria-label="${esc(t('info.aria'))}" title="${esc(t('info.aria'))}">${ICON_INFO}</button>
+      </div>
       <p id="ex" class="hint">${esc(t('add.example'))}</p>
       ${bigMic('sentence', t('add.sentenceLabel'), 'say')}
       ${fieldWithMic('<input id="sentence" autocomplete="off" autocapitalize="off" enterkeyhint="go">', 'sentence', t('add.sentenceLabel'), null, false)}
       <button type="submit">${esc(t('add.recognize'))}</button>
     </form>`);
+
+  $('info').onclick = (e) => infoDialog({
+    title: t('info.title'),
+    lines: [t('info.scheme'), t('info.self'), t('info.when'), t('info.ex1'), t('info.ex2'), t('info.check')],
+    opener: e.currentTarget,
+  });
 
   let shown = 3; // how many recent entries are listed; "Show more" raises it
   function fillRecent() {

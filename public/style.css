@@ -192,3 +192,10 @@ button.size[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
 footer { margin: 4rem calc(50% - 50vw) -2rem; padding: 2rem var(--edge) max(2.5rem, env(safe-area-inset-bottom)); border-top: 0; background: oklch(0.955 0.005 100); color: var(--fg); }
 footer .size-pick { margin-bottom: 2rem; }
 footer .field-label { margin-top: 0; }
+
+/* Label with an info button beside it */
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.label-row label { flex: 1; }
+button.info { flex: none; margin: 1rem 0 .25rem; width: 2.7rem; min-height: 0; height: 2.7rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg); color: var(--brand); border: 3px solid var(--brand); }
+
+.dlg-gap { display: inline-block; margin-top: .6rem; }

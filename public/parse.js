@@ -144,7 +144,11 @@
     dayBefore: /vorgestern/,
     yesterday: /gestern/,
     today: /heute/,
-    monthPatterns: (i) => [{ re: new RegExp(`(?:^|\\s)(\\d{1,2})\\.?\\s*${DE_MONTHS[i]}(?![a-zäöü])(?:\\s+(\\d{4}))?`), d: 1, y: 2 }],
+    monthPatterns: (i) => [
+      { re: new RegExp(`(?:^|\\s)(\\d{1,2})\\.?\\s*${DE_MONTHS[i]}(?![a-zäöü])(?:\\s+(\\d{4}))?`), d: 1, y: 2 },
+      // month first: "Oktober 2", "Oktober zwei" (not "Oktober 2 Stunden", which is a duration)
+      { re: new RegExp(`(?:^|\\s)${DE_MONTHS[i]}(?![a-zäöü])\\s+(\\d{1,2})(?!\\d)\\.?(?!\\s*(?:std|stunde|min|h(?![a-zäöü])|m(?![a-zäöü])))(?:\\s+(\\d{4}))?`), d: 1, y: 2 },
+    ],
     weekdays: [['montag', 1], ['dienstag', 2], ['mittwoch', 3], ['donnerstag', 4], ['freitag', 5], ['samstag', 6], ['sonnabend', 6], ['sonntag', 0]],
     selfRe: /(^|\s)(ich|mir|mich|selbst|meine|mein)(\s|$)/,
     nameMatch: (rest, name) => new RegExp(`(^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(rest), // also matches "Marias"
