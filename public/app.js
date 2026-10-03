@@ -7,9 +7,10 @@ const { iso, addDays } = P;
 
 let state = { people: [], entries: [] };
 let view = 'add';
-let report = { mode: 'thisWeek', personId: 'all' };
+let report = { mode: 'thisWeek', personId: 'self' };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const personRole = (id) => (state.people.find((p) => p.id === id) || {}).role || '';
 const personName = (id) => (id === 'self' ? t('me') : (state.people.find((p) => p.id === id) || { name: '?' }).name);
 const $ = (id) => $app.querySelector('#' + id);
 
@@ -102,14 +103,17 @@ function renderLogin() {
 }
 
 // ---------- shell ----------
-function shell(title, inner) {
+// `first` (optional) is the content of a full-height first screen together with the menu and heading;
+// `inner` is everything after it.
+function shell(title, inner, first) {
   document.title = title;
   const nav = [['add', t('nav.add')], ['report', t('nav.reports')], ['people', t('nav.people')]]
     .map(([k, n]) => `<button class="secondary" data-nav="${k}" ${view === k ? 'aria-current="page"' : ''}>${esc(n)}</button>`).join('');
-  // Sign out lives only at the bottom of the People page, away from the menu, and asks for confirmation.
-  $app.innerHTML = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>
-    <h1>${esc(title)}</h1>${inner}
-    ${view === 'people' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
+  // Sign out lives only at the bottom of the main (Add hours) page, away from the menu, and asks for confirmation.
+  const top = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>
+    <h1>${esc(title)}</h1>`;
+  $app.innerHTML = `${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
+    ${view === 'add' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
@@ -126,35 +130,121 @@ async function go(v) {
 }
 function render() { ({ add: renderAdd, report: renderReport, people: renderPeople })[view](); }
 
-// "When" picker shared by the add form and the edit dialog: today / yesterday / day before / another date.
-function whenHtml(pre) {
-  return `<label for="${pre}when">${esc(t('add.when'))}</label>
-    <select id="${pre}when">
-      <option value="0">${esc(t('when.today'))}</option><option value="1">${esc(t('when.yesterday'))}</option>
-      <option value="2">${esc(t('when.dayBefore'))}</option><option value="other">${esc(t('when.other'))}</option>
-    </select>
-    <div id="${pre}otherWrap" hidden>
-      <label for="${pre}other">${esc(t('add.otherLabel'))}</label>
-      <input id="${pre}other" autocomplete="off">
+// ---------- custom dropdown ----------
+// A button that opens a dialog with the options (radio buttons). Looks the same everywhere and is
+// predictable for screen readers; the page behind the dialog is inert.
+function pickDialog({ title, options, value, opener }) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.setAttribute('aria-label', title);
+    d.innerHTML = `<div role="radiogroup" aria-label="${esc(title)}" class="picker-options">
+        ${options.map((o) => `<button type="button" role="radio" aria-checked="${o.value === value}" data-value="${esc(o.value)}"><span>${esc(o.text)}</span></button>`).join('')}
+      </div>
+      <div class="dlg-actions"><button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button></div>`;
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      if (d.open) d.close();
+      d.remove();
+      if (opener) focusSoon(opener, 0);
+      resolve(v);
+    };
+    const radios = [...d.querySelectorAll('[role=radio]')];
+    radios.forEach((r) => {
+      r.onclick = () => finish(r.dataset.value);
+      r.onkeydown = (e) => {
+        const i = radios.indexOf(r);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); radios[(i + 1) % radios.length].focus(); }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); radios[(i - 1 + radios.length) % radios.length].focus(); }
+      };
+    });
+    d.querySelector('[data-act=cancel]').onclick = () => finish(null);
+    d.addEventListener('cancel', () => finish(null));
+    d.addEventListener('close', () => finish(null));
+    document.body.appendChild(d);
+    d.showModal();
+    (radios.find((r) => r.getAttribute('aria-checked') === 'true') || radios[0]).focus();
+  });
+}
+function pickerHtml(id, label, options, value) {
+  const cur = options.find((o) => o.value === value) || options[0];
+  return `<span class="field-label" id="${id}-lbl">${esc(label)}</span>
+    <button type="button" class="picker" id="${id}" aria-haspopup="dialog" aria-labelledby="${id}-lbl ${id}" data-value="${esc(cur.value)}">${esc(cur.text)}</button>`;
+}
+function makePicker(root, id, label, options) {
+  const btn = root.querySelector('#' + id);
+  const set = (v) => { const o = options.find((x) => x.value === v); if (o) { btn.dataset.value = o.value; btn.textContent = o.text; } };
+  btn.onclick = async () => { const v = await pickDialog({ title: label, options, value: btn.dataset.value, opener: btn }); if (v != null) set(v); };
+  return { get: () => btn.dataset.value, text: () => btn.textContent, set, el: btn };
+}
+const personOptions = () => state.people.map((p) => ({ value: p.id, text: personName(p.id) }));
+
+// ---------- number stepper ----------
+// A number field with - / + buttons. Also: arrow keys, and dragging up/down on touch screens.
+// The value is always kept within min..max.
+function stepperHtml(id, label, min, max, value) {
+  return `<label for="${id}">${esc(label)}</label>
+    <div class="stepper">
+      <button type="button" class="step" data-step="-1" data-for="${id}" aria-label="${esc(t('step.less', { field: label }))}">&minus;</button>
+      <input id="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${value}">
+      <button type="button" class="step" data-step="1" data-for="${id}" aria-label="${esc(t('step.more', { field: label }))}">+</button>
     </div>`;
 }
+function makeStepper(root, id) {
+  const input = root.querySelector('#' + id);
+  const min = Number(input.min), max = Number(input.max);
+  const clamp = (n) => Math.min(max, Math.max(min, Math.round(Number(n) || 0)));
+  const setVal = (n) => { input.value = clamp(n); input.dispatchEvent(new Event('change', { bubbles: true })); };
+  const fit = () => { input.value = clamp(input.value); };
+  input.addEventListener('blur', fit);
+  input.addEventListener('change', fit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); setVal(Number(input.value) + 1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setVal(Number(input.value) - 1); }
+  });
+  root.querySelectorAll(`.step[data-for="${id}"]`).forEach((b) => {
+    let timer;
+    const bump = () => setVal(Number(input.value) + Number(b.dataset.step));
+    b.onclick = (e) => { if (e.detail === 0 || !b._held) bump(); b._held = false; }; // keyboard / screen reader activation
+    b.onpointerdown = (e) => { // press and hold repeats
+      b._held = false;
+      timer = setTimeout(function tick() { b._held = true; bump(); timer = setTimeout(tick, 120); }, 450);
+    };
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, () => clearTimeout(timer)));
+  });
+  // Drag up/down on the field to change the value (touch and pen only, so the mouse can still select text).
+  let startY = null, startVal = 0, dragging = false;
+  input.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; startY = e.clientY; startVal = Number(input.value) || 0; dragging = false; });
+  input.addEventListener('pointermove', (e) => {
+    if (startY === null) return;
+    const dy = startY - e.clientY;
+    if (!dragging && Math.abs(dy) < 10) return;
+    dragging = true;
+    input.blur();
+    input.value = clamp(startVal + Math.round(dy / 24));
+  });
+  const end = () => { if (dragging) input.dispatchEvent(new Event('change', { bubbles: true })); startY = null; dragging = false; };
+  input.addEventListener('pointerup', end);
+  input.addEventListener('pointercancel', end);
+  return input;
+}
+// 24 hours is the most; with 24 hours there can be no extra minutes.
+function limitDuration(hEl, mEl) {
+  const fix = () => { if (Number(hEl.value) >= 24) mEl.value = 0; };
+  hEl.addEventListener('change', fix);
+  mEl.addEventListener('change', fix);
+  mEl.addEventListener('input', () => { if (Number(hEl.value) >= 24) mEl.value = 0; });
+}
+
+// Date picker shared by the add form and the edit dialog: a native date field (opens the device calendar).
+function whenHtml(pre) {
+  return `<label for="${pre}when">${esc(t('add.date'))}</label>
+    <input id="${pre}when" type="date" value="${iso(new Date())}">`;
+}
 function makeWhen(root, pre) {
-  const q = (id) => root.querySelector('#' + pre + id);
-  const toggle = () => { q('otherWrap').hidden = q('when').value !== 'other'; };
-  q('when').onchange = toggle;
-  return {
-    get() {
-      const w = q('when').value;
-      if (w !== 'other') return iso(addDays(new Date(), -Number(w)));
-      return L.parseDate(String(q('other').value).toLowerCase().replace(/\s+/g, ' ').trim(), new Date()).date;
-    },
-    set(date) {
-      const diff = Math.round((new Date(iso(new Date())) - new Date(date)) / 864e5);
-      if ([0, 1, 2].includes(diff)) { q('when').value = String(diff); q('other').value = ''; }
-      else { q('when').value = 'other'; q('other').value = date.split('-').reverse().join('.'); }
-      toggle();
-    },
-  };
+  const input = root.querySelector('#' + pre + 'when');
+  return { get: () => input.value || null, set: (date) => { input.value = date; } };
 }
 
 const ICON_EDIT = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg>';
@@ -177,16 +267,12 @@ function editDialog(e, opener, save) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.setAttribute('aria-labelledby', 'dlg-info');
-    const opts = state.people.map((p) => `<option value="${p.id}" ${p.id === e.personId ? 'selected' : ''}>${esc(personName(p.id))}</option>`).join('');
     d.innerHTML = `<form id="ef">
       <h2 id="dlg-info" tabindex="-1">${esc(t('dlg.editEntry'))}</h2>
-      <label for="e-who">${esc(t('add.who'))}</label>
-      <select id="e-who">${opts}</select>
+      ${pickerHtml('e-who', t('add.who'), personOptions(), e.personId)}
       ${whenHtml('e-')}
-      <div class="row">
-        <div><label for="e-h">${esc(t('add.hours'))}</label><input id="e-h" type="number" inputmode="numeric" min="0" max="24" value="${Math.floor(e.minutes / 60)}"></div>
-        <div><label for="e-m">${esc(t('add.minutes'))}</label><input id="e-m" type="number" inputmode="numeric" min="0" max="59" value="${e.minutes % 60}"></div>
-      </div>
+      ${stepperHtml('e-h', t('add.hours'), 0, 24, Math.floor(e.minutes / 60))}
+      ${stepperHtml('e-m', t('add.minutes'), 0, 59, e.minutes % 60)}
       <p id="e-err" class="msg" role="alert" hidden></p>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button>
@@ -195,6 +281,8 @@ function editDialog(e, opener, save) {
     const q = (id) => d.querySelector('#' + id);
     const when = makeWhen(d, 'e-');
     when.set(e.date);
+    const who = makePicker(d, 'e-who', t('add.who'), personOptions());
+    limitDuration(makeStepper(d, 'e-h'), makeStepper(d, 'e-m'));
     let done = false;
     const finish = (ok) => {
       if (done) return;
@@ -213,9 +301,10 @@ function editDialog(e, opener, save) {
       const minutes = Number(q('e-h').value) * 60 + Number(q('e-m').value);
       const date = when.get();
       if (!minutes || minutes <= 0) return fail(t('msg.enterTime'));
+      if (minutes > 24 * 60) return fail(t('msg.tooLong'));
       if (!date) return fail(t('msg.badDate'));
       await withBusy(q('e-save'), t('busy.saving'), async () => {
-        try { await save({ personId: q('e-who').value, date, minutes }); } catch (err) { return fail(err.message === 'auth' ? t('err.generic') : errText(err)); }
+        try { await save({ personId: who.get(), date, minutes }); } catch (err) { return fail(err.message === 'auth' ? t('err.generic') : errText(err)); }
         finish(true);
       });
     };
@@ -255,50 +344,50 @@ function bindEntryActions(root, refill, headingEl) {
 
 // ---------- add entry ----------
 function renderAdd() {
-  const opts = state.people.map((p) => `<option value="${p.id}">${esc(personName(p.id))}</option>`).join('');
   shell(t('add.title'), `
+    <div class="screen">
+    <form id="f">
+      <fieldset>
+        <legend>${esc(t('add.legend'))}</legend>
+        ${pickerHtml('who', t('add.who'), personOptions(), 'self')}
+        ${whenHtml('')}
+        ${stepperHtml('h', t('add.hours'), 0, 24, 0)}
+        ${stepperHtml('m', t('add.minutes'), 0, 59, 0)}
+        <button type="submit" id="save">${esc(t('add.save'))}</button>
+      </fieldset>
+    </form>
+    </div>
+    <h2 id="recentTitle" tabindex="-1">${esc(t('add.recent'))}</h2>
+    <div id="recent"></div>`, `
     <form id="say">
       <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
       <p id="ex" class="hint">${esc(t('add.example'))}</p>
       <input id="sentence" autocomplete="off" autocapitalize="off" enterkeyhint="go">
       <button type="submit">${esc(t('add.recognize'))}</button>
-    </form>
-    <form id="f">
-      <fieldset>
-        <legend>${esc(t('add.legend'))}</legend>
-        <label for="who">${esc(t('add.who'))}</label>
-        <select id="who">${opts}</select>
-        ${whenHtml('')}
-        <div class="row">
-          <div><label for="h">${esc(t('add.hours'))}</label><input id="h" type="number" inputmode="numeric" min="0" max="24" value="0"></div>
-          <div><label for="m">${esc(t('add.minutes'))}</label><input id="m" type="number" inputmode="numeric" min="0" max="59" value="0"></div>
-        </div>
-        <button type="submit" id="save">${esc(t('add.save'))}</button>
-      </fieldset>
-    </form>
-    <h2 id="recentTitle" tabindex="-1">${esc(t('add.recent'))}</h2>
-    <div id="recent"></div>`);
+    </form>`);
 
   function fillRecent() {
-    const last = [...state.entries].sort((a, b) => b.created.localeCompare(a.created)).slice(0, 5);
+    const last = [...state.entries].sort((a, b) => b.created.localeCompare(a.created)).slice(0, 3);
     $('recent').innerHTML = last.length ? `<ul>${last.map((e) => entryLi(e, true)).join('')}</ul>` : `<p>${esc(t('add.none'))}</p>`;
     bindEntryActions($('recent'), fillRecent, () => $('recentTitle'));
   }
   fillRecent();
 
   const when = makeWhen($app, '');
+  const who = makePicker($app, 'who', t('add.who'), personOptions());
+  limitDuration(makeStepper($app, 'h'), makeStepper($app, 'm'));
 
   function summary() {
     const min = Number($('h').value) * 60 + Number($('m').value);
     const date = when.get();
-    return { min, date, text: `${$('who').selectedOptions[0].text}, ${date ? L.fmtDate(date) : t('add.noDate')}, ${L.fmtDuration(min)}` };
+    return { min, date, text: `${who.text()}, ${date ? L.fmtDate(date) : t('add.noDate')}, ${L.fmtDuration(min)}` };
   }
 
   $('say').onsubmit = (e) => {
     e.preventDefault();
     const r = L.parseSentence($('sentence').value, state.people);
     if (!r.minutes) return warn(t('msg.noTime'));
-    if (r.personId) $('who').value = r.personId;
+    if (r.personId) who.set(r.personId);
     when.set(r.date || iso(new Date()));
     $('h').value = Math.floor(r.minutes / 60);
     $('m').value = r.minutes % 60;
@@ -307,7 +396,7 @@ function renderAdd() {
       focusSoon($('save'));
     } else {
       warn(t('msg.noPerson'));
-      focusSoon($('who'));
+      focusSoon(who.el);
     }
   };
 
@@ -315,10 +404,11 @@ function renderAdd() {
     e.preventDefault();
     const { min, date, text } = summary();
     if (!min || min <= 0) return warn(t('msg.enterTime'));
+    if (min > 24 * 60) return warn(t('msg.tooLong'));
     if (!date) return warn(t('msg.badDate'));
     await withBusy($('save'), t('busy.saving'), async () => {
       try {
-        await call('POST', '/api/entries', { personId: $('who').value, date, minutes: min });
+        await call('POST', '/api/entries', { personId: who.get(), date, minutes: min });
       } catch (err) { return err.message !== 'auth' && warn(t('msg.saveFailed')); }
       await refresh();
       // Reset the form and update the list in place. Focus is deliberately not moved.
@@ -354,9 +444,9 @@ function period() {
 }
 
 function renderReport() {
-  const people = [['all', t('report.everyone')], ...state.people.map((p) => [p.id, personName(p.id)])];
-  if (report.personId !== 'all' && !state.people.some((p) => p.id === report.personId)) report.personId = 'all';
-  const personLabel = () => (people.find(([id]) => id === report.personId) || [, ''])[1];
+  const people = state.people.map((p) => [p.id, personName(p.id)]);
+  if (!state.people.some((p) => p.id === report.personId)) report.personId = 'self';
+  const personLabel = () => personName(report.personId) + (personRole(report.personId) ? `, ${personRole(report.personId)}` : '');
 
   shell(t('report.title'), `
     <h2>${esc(t('report.people'))}</h2>
@@ -385,7 +475,7 @@ function renderReport() {
   function totals() {
     const per = period();
     const list = state.entries
-      .filter((e) => e.date >= per.from && e.date <= per.to && (report.personId === 'all' || e.personId === report.personId))
+      .filter((e) => e.date >= per.from && e.date <= per.to && e.personId === report.personId)
       .sort((a, b) => a.date.localeCompare(b.date));
     return { per, list, d: L.fmtDuration(list.reduce((s, e) => s + e.minutes, 0)) };
   }
@@ -394,7 +484,7 @@ function renderReport() {
     // Total first, then the entries of the chosen person for the chosen period.
     $('reportBody').innerHTML = `<h2 id="ptitle" tabindex="-1">${esc(per.title)}</h2>
       <p class="total">${esc(personLabel())}: ${esc(t('report.total', { d }))}</p>
-      ${list.length ? `<ul>${list.map((e) => entryLi(e, report.personId === 'all')).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
+      ${list.length ? `<ul>${list.map((e) => entryLi(e, false)).join('')}</ul>` : `<p>${esc(t('report.noEntries'))}</p>`}`;
     bindEntryActions($('reportBody'), fillReport, () => $('ptitle'));
     markActive();
   }
@@ -421,18 +511,24 @@ function renderPeople() {
   shell(t('people.title'), `
     <h2 id="listTitle" tabindex="-1">${esc(t('people.list'))}</h2>
     <div id="peopleList"></div>
+    <h2>${esc(t('people.addTitle'))}</h2>
     <form id="f">
-      <label for="name">${esc(t('people.addLabel'))}</label>
+      <label for="name">${esc(t('people.nameLabel'))}</label>
       <input id="name" autocomplete="off">
+      <label for="role">${esc(t('people.roleLabel'))}</label>
+      <input id="role" autocomplete="off">
       <button type="submit" id="add">${esc(t('people.add'))}</button>
     </form>`);
 
   function fillPeople() {
-    $('peopleList').innerHTML = `<ul>${state.people.map((p) => `<li>${esc(personName(p.id))}${p.id === 'self' ? '' : `
-      <button class="danger" data-rm="${p.id}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${esc(t('entry.delete'))}</button>`}</li>`).join('')}</ul>`;
+    $('peopleList').innerHTML = `<ul>${state.people.map((p) => {
+      const text = `<span class="e-name">${esc(personName(p.id))}</span>${p.role ? `<span class="pause">, </span><br><span>${esc(p.role)}</span>` : ''}`;
+      return `<li class="card entry"><p class="entry-text">${text}</p>${p.id === 'self' ? '' : `<div class="entry-actions">
+        <button class="icon danger" data-rm="${p.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${ICON_DELETE}</button></div>`}</li>`;
+    }).join('')}</ul>`;
     $('peopleList').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
       const n = personName(b.dataset.rm);
-      if (!(await confirmDialog({ title: t('dlg.deletePerson'), lines: [n], detail: t('dlg.personDetail'), okLabel: t('dlg.delete'), opener: b }))) return;
+      if (!(await confirmDialog({ title: t('dlg.deletePerson'), lines: [n, personRole(b.dataset.rm)].filter(Boolean), detail: t('dlg.personDetail'), okLabel: t('dlg.delete'), opener: b }))) return;
       await withBusy(b, t('busy.deleting'), async () => {
         await call('DELETE', '/api/people/' + b.dataset.rm);
         await refresh(); fillPeople(); say(t('people.removed', { name: n })); focusSoon($('listTitle'), 100);
@@ -443,11 +539,11 @@ function renderPeople() {
 
   $('f').onsubmit = async (e) => {
     e.preventDefault();
-    const name = $('name').value.trim();
+    const name = $('name').value.trim(), role = $('role').value.trim();
     if (!name) return warn(t('people.emptyName'));
     await withBusy($('add'), t('busy.adding'), async () => {
-      try { await call('POST', '/api/people', { name }); } catch (err) { return err.message !== 'auth' && warn(errText(err)); }
-      await refresh(); fillPeople(); $('name').value = ''; say(t('people.added', { name }));
+      try { await call('POST', '/api/people', { name, role }); } catch (err) { return err.message !== 'auth' && warn(errText(err)); }
+      await refresh(); fillPeople(); $('name').value = ''; $('role').value = ''; say(t('people.added', { name }));
     });
   };
 }

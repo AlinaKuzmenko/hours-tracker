@@ -63,7 +63,6 @@ li.entry { display: flex; align-items: center; justify-content: space-between; g
 button.icon svg { display: block; }
 button.icon[aria-busy="true"]::after { display: none; }
 button.icon[aria-busy="true"] svg { opacity: .4; }
-#peopleList li { display: flex; flex-direction: column; font-weight: bold; font-size: 1.15rem; }
 dialog .row { margin-top: 0; }
 dialog .msg { margin: 1rem 0 0; }
 dialog h2 { margin-bottom: 1rem; }
@@ -82,3 +81,24 @@ details#custom { margin-top: 1.25rem; }
 details#custom summary { cursor: pointer; font-weight: bold; font-size: 1.1rem; padding: .7rem 1rem; border: 3px solid var(--fg); border-radius: .4rem; min-height: 3rem; }
 details#custom[open] summary { margin-bottom: .5rem; }
 #reportBody > h2:first-child { margin-top: 1.5rem; }
+
+input[type="date"] { display: block; width: 100%; min-width: 0; max-width: 100%; text-align: left; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+
+/* Main page "screens": each one fills the phone's height, so the first screen shows only the sentence input,
+   the next one the manual fields, and the recent entries need another scroll. Plain scrolling, no snapping. */
+.screen { min-height: 100vh; min-height: 100svh; }
+
+/* Custom dropdown (button + option dialog) */
+.field-label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
+button.picker { display: block; margin: 0; background: var(--bg); color: var(--fg); font-weight: normal; text-align: left; padding-right: 2.5rem; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 1.4rem) 55%, calc(100% - 1rem) 55%; background-size: .45rem .45rem; background-repeat: no-repeat; }
+.picker-options { display: grid; gap: .75rem; max-height: 60vh; overflow: auto; padding: 4px; }
+.picker-options button { margin: 0; text-align: left; background: var(--bg); color: var(--fg); font-weight: normal; }
+.picker-options button[aria-checked="true"] { background: var(--fg); color: var(--bg); font-weight: bold; }
+.picker-options button[aria-checked="true"] span::after { content: " \2713"; }
+
+/* Number stepper */
+.stepper { display: grid; grid-template-columns: 3.4rem 1fr 3.4rem; gap: .6rem; align-items: stretch; }
+.stepper button.step { margin: 0; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper input { text-align: center; touch-action: none; -moz-appearance: textfield; appearance: textfield; }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
