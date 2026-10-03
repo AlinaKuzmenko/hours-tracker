@@ -182,8 +182,9 @@ function bindMics(root) {
       rec.onstart = () => mark('start');
       rec.onaudiostart = () => {
         mark('audiostart');
-        // The microphone opened but no sound arrives at all (e.g. Bluetooth headphones grabbing the input): say so instead of waiting forever.
-        watchdog = setTimeout(() => { if (!sawSound && !discarded && micAbort === abort) { mark('silent'); warn(t('mic.silent')); abort(); } }, 6000);
+        // The microphone opened but no sound arrives at all (e.g. Bluetooth headphones grabbing the input): hint at it.
+        // The recording is left running, because some Safari versions never send the sound events even while speech works.
+        watchdog = setTimeout(() => { if (!sawSound && !discarded && micAbort === abort) { mark('silent'); warn(t('mic.silent')); } }, 8000);
       };
       rec.onsoundstart = () => { sawSound = true; mark('soundstart'); };
       rec.onspeechstart = () => { sawSound = true; mark('speechstart'); };
