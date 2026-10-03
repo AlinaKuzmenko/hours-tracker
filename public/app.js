@@ -16,7 +16,18 @@ const $ = (id) => $app.querySelector('#' + id);
 
 // Messages for screen readers (polite status / assertive alert). Cleared first so repeated text is announced again.
 function say(text) { $status.textContent = ''; setTimeout(() => { $status.textContent = text; }, 50); }
-function warn(text) { $alert.textContent = ''; setTimeout(() => { $alert.textContent = text; }, 50); }
+const $toast = document.getElementById('toast');
+let toastTimer;
+// Warnings are also shown on screen (a banner at the bottom, tap to dismiss), not only announced.
+function warn(text) {
+  $alert.textContent = '';
+  setTimeout(() => { $alert.textContent = text; }, 50);
+  $toast.textContent = text;
+  $toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $toast.hidden = true; }, 9000);
+}
+$toast.onclick = () => { $toast.hidden = true; };
 const errText = (e) => (has('err.' + e.message) ? t('err.' + e.message) : t('err.generic'));
 
 // Moving focus right after the keyboard closes makes screen readers jump around, so wait a moment.
@@ -122,21 +133,22 @@ function bindMics(root) {
         heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
         input.value = heard;
       };
+      let failed = false;
       rec.onerror = (e) => {
         const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
-        if (e.error !== 'aborted') warn(t(key || 'mic.failed'));
+        if (e.error !== 'aborted') { failed = true; warn(`${t(key || 'mic.failed')} (${e.error})`); }
       };
       rec.onend = () => {
         setListening(false);
         if (micStop === stop) micStop = null;
+        if (!heard && !failed) warn(t('mic.nothing'));
         if (heard && btn.dataset.submit) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
       };
-      let cancelled = false;
-      const stop = () => { cancelled = true; try { rec.stop(); } catch {} setListening(false); if (micStop === stop) micStop = null; };
+      const stop = () => { try { rec.stop(); } catch {} setListening(false); if (micStop === stop) micStop = null; };
       micStop = stop;
       setListening(true);
-      // A short pause so the screen reader's own announcement of the button is not picked up as speech.
-      setTimeout(() => { if (!cancelled) { try { rec.start(); } catch { stop(); } } }, 600);
+      // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
+      try { rec.start(); } catch (err) { stop(); warn(`${t('mic.failed')} (${err.name || 'start'})`); }
     };
   });
 }
@@ -380,6 +392,56 @@ function editDialog(e, opener, save) {
   });
 }
 
+// Dialog for changing a person's name and position (the owner's own name is fixed, only the position can change).
+function personDialog(person, opener, save) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.setAttribute('aria-labelledby', 'dlg-info');
+    const self = person.id === 'self';
+    d.innerHTML = `<form id="pf">
+      <h2 id="dlg-info" tabindex="-1">${esc(t('people.editTitle'))}</h2>
+      ${self ? '' : `<label for="p-name">${esc(t('people.nameLabel'))}</label>
+      ${fieldWithMic('<input id="p-name" autocomplete="off">', 'p-name', t('people.nameLabel'))}`}
+      <label for="p-role">${esc(t('people.roleLabel'))}</label>
+      ${fieldWithMic('<input id="p-role" autocomplete="off">', 'p-role', t('people.roleLabel'))}
+      <p id="p-err" class="msg" role="alert" hidden></p>
+      <div class="dlg-actions">
+        <button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button>
+        <button type="submit" id="p-save">${esc(t('dlg.save'))}</button>
+      </div></form>`;
+    const q = (id) => d.querySelector('#' + id);
+    if (!self) q('p-name').value = person.name;
+    q('p-role').value = person.role || '';
+    bindMics(d);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      if (micStop) micStop();
+      if (d.open) d.close();
+      d.remove();
+      if (!ok && opener) focusSoon(opener, 0);
+      resolve(ok);
+    };
+    const fail = (msg) => { const e = q('p-err'); e.hidden = false; e.textContent = ''; setTimeout(() => { e.textContent = msg; }, 50); };
+    d.querySelector('[data-act=cancel]').onclick = () => finish(false);
+    d.addEventListener('cancel', () => finish(false));
+    d.addEventListener('close', () => finish(false));
+    q('pf').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const name = self ? person.name : q('p-name').value.trim();
+      if (!name) return fail(t('people.emptyName'));
+      await withBusy(q('p-save'), t('busy.saving'), async () => {
+        try { await save({ name, role: q('p-role').value.trim() }); } catch (err) { return fail(err.message === 'auth' ? t('err.generic') : errText(err)); }
+        finish(true);
+      });
+    };
+    document.body.appendChild(d);
+    d.showModal();
+    q('dlg-info').focus();
+  });
+}
+
 // Edit / delete buttons of a list of entries. After a change, refill() updates only the changed region
 // (re-rendering the whole page would make a screen reader jump back to the top).
 function bindEntryActions(root, refill, headingEl) {
@@ -610,9 +672,22 @@ function renderPeople() {
   function fillPeople() {
     $('peopleList').innerHTML = `<ul>${state.people.map((p) => {
       const text = `<span class="e-name">${esc(personName(p.id))}</span>${p.role ? `<span class="pause">, </span><br><span>${esc(p.role)}</span>` : ''}`;
-      return `<li class="card entry"><p class="entry-text">${text}</p>${p.id === 'self' ? '' : `<div class="entry-actions">
+      const label = personName(p.id) + (p.role ? `, ${p.role}` : '');
+      // The whole text area is one button: tapping the card opens the edit dialog.
+      return `<li class="card entry"><button type="button" class="card-main" data-editp="${p.id}" aria-label="${esc(t('people.editAria', { name: label }))}"><span class="entry-text">${text}</span><span class="card-pencil" aria-hidden="true">${ICON_EDIT}</span></button>${p.id === 'self' ? '' : `<div class="entry-actions">
         <button class="icon danger" data-rm="${p.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${ICON_DELETE}</button></div>`}</li>`;
     }).join('')}</ul>`;
+    $('peopleList').querySelectorAll('[data-editp]').forEach((b) => (b.onclick = async () => {
+      const person = state.people.find((x) => x.id === b.dataset.editp);
+      if (!person) return;
+      const saved = await personDialog(person, b, (v) => call('PUT', '/api/people/' + person.id, v));
+      if (!saved) return;
+      await refresh();
+      fillPeople();
+      const updated = state.people.find((x) => x.id === person.id);
+      say(t('people.updated', { name: updated ? personName(updated.id) : '' }));
+      focusSoon($('peopleList').querySelector(`[data-editp="${person.id}"]`) || $('listTitle'), 100);
+    }));
     $('peopleList').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
       const n = personName(b.dataset.rm);
       if (!(await confirmDialog({ title: t('dlg.deletePerson'), lines: [n, personRole(b.dataset.rm)].filter(Boolean), detail: t('dlg.personDetail'), okLabel: t('dlg.delete'), opener: b }))) return;
