@@ -98,12 +98,17 @@ async function withBusy(btn, label, fn) {
 const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
+const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 let micStop = null; // stops the recording that is currently running
+let micDiscard = null; // makes the running recording drop what it hears (used by the clear button)
 
 // A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
-function fieldWithMic(inputHtml, id, label, submitForm) {
-  if (!getSR()) return inputHtml;
-  return `<div class="with-mic">${inputHtml}<button type="button" class="mic" data-mic="${id}" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button></div>`;
+// Every such field also gets a clear (x) button, for when the text was recognised badly.
+// With `mic: false` only the clear button is added (the main mic button is elsewhere).
+function fieldWithMic(inputHtml, id, label, submitForm, mic = true) {
+  const clear = `<button type="button" class="clear" data-clear="${id}" aria-label="${esc(t('clear.aria', { field: label }))}">${ICON_CLEAR}</button>`;
+  const micBtn = mic && getSR() ? `<button type="button" class="mic" data-mic="${id}" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
+  return `<div class="with-mic ${micBtn ? 'has-mic' : ''}">${inputHtml}${clear}${micBtn}</div>`;
 }
 // The main way to enter data: a large mic button. The text field stays available for typing.
 function bigMic(id, label, submitForm) {
@@ -111,6 +116,15 @@ function bigMic(id, label, submitForm) {
   return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button>`;
 }
 function bindMics(root) {
+  root.querySelectorAll('[data-clear]').forEach((btn) => {
+    btn.onclick = () => {
+      const input = root.querySelector('#' + btn.dataset.clear);
+      if (micDiscard) micDiscard(); // a recording in progress must not write the text back
+      if (micStop) micStop();
+      input.value = '';
+      say(t('clear.done')); // focus stays on the button, so the keyboard does not open
+    };
+  });
   root.querySelectorAll('[data-mic]').forEach((btn) => {
     const input = root.querySelector('#' + btn.dataset.mic);
     const startLabel = t('mic.start', { field: btn.dataset.field });
@@ -129,18 +143,25 @@ function bindMics(root) {
       rec.continuous = false;
       rec.maxAlternatives = 1;
       let heard = '';
+      let discarded = false;
+      micDiscard = () => { discarded = true; };
       rec.onresult = (e) => {
+        if (discarded) return;
         heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
         input.value = heard;
       };
       let failed = false;
       rec.onerror = (e) => {
         const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
-        if (e.error !== 'aborted') { failed = true; warn(`${t(key || 'mic.failed')} (${e.error})`); }
+        // Chrome/Firefox/Edge on iPhone are not allowed to use speech recognition even when the microphone is switched on in Settings.
+        const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
+        if (e.error !== 'aborted') { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
       };
       rec.onend = () => {
         setListening(false);
         if (micStop === stop) micStop = null;
+        if (micDiscard && discarded) micDiscard = null;
+        if (discarded) return;
         if (!heard && !failed) warn(t('mic.nothing'));
         if (heard && btn.dataset.submit) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
       };
@@ -492,7 +513,7 @@ function renderAdd() {
       <label for="sentence">${esc(t('add.sentenceLabel'))}</label>
       <p id="ex" class="hint">${esc(t('add.example'))}</p>
       ${bigMic('sentence', t('add.sentenceLabel'), 'say')}
-      <input id="sentence" autocomplete="off" autocapitalize="off" enterkeyhint="go">
+      ${fieldWithMic('<input id="sentence" autocomplete="off" autocapitalize="off" enterkeyhint="go">', 'sentence', t('add.sentenceLabel'), null, false)}
       <button type="submit">${esc(t('add.recognize'))}</button>
     </form>`);
 
@@ -673,9 +694,10 @@ function renderPeople() {
     $('peopleList').innerHTML = `<ul>${state.people.map((p) => {
       const text = `<span class="e-name">${esc(personName(p.id))}</span>${p.role ? `<span class="pause">, </span><br><span>${esc(p.role)}</span>` : ''}`;
       const label = personName(p.id) + (p.role ? `, ${p.role}` : '');
-      // The whole text area is one button: tapping the card opens the edit dialog.
-      return `<li class="card entry"><button type="button" class="card-main" data-editp="${p.id}" aria-label="${esc(t('people.editAria', { name: label }))}"><span class="entry-text">${text}</span><span class="card-pencil" aria-hidden="true">${ICON_EDIT}</span></button>${p.id === 'self' ? '' : `<div class="entry-actions">
-        <button class="icon danger" data-rm="${p.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${ICON_DELETE}</button></div>`}</li>`;
+      // The owner's own card ("Me") is plain text, not editable. Other cards: the whole text area is one button that opens the edit dialog.
+      if (p.id === 'self') return `<li class="card entry"><p class="entry-text">${text}</p></li>`;
+      return `<li class="card entry"><button type="button" class="card-main" data-editp="${p.id}" aria-label="${esc(t('people.editAria', { name: label }))}"><span class="entry-text">${text}</span><span class="card-pencil" aria-hidden="true">${ICON_EDIT}</span></button><div class="entry-actions">
+        <button class="icon danger" data-rm="${p.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${ICON_DELETE}</button></div></li>`;
     }).join('')}</ul>`;
     $('peopleList').querySelectorAll('[data-editp]').forEach((b) => (b.onclick = async () => {
       const person = state.people.find((x) => x.id === b.dataset.editp);
