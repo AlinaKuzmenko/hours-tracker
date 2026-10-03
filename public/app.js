@@ -300,12 +300,18 @@ function renderLogin() {
 function shell(title, inner, first) {
   if (micAbort) micAbort(); // a recording must not outlive the page it belongs to
   document.title = title;
+  const svg = (p) => `<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${p}</svg>`;
+  const NAV_ICON = {
+    add: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    report: svg('<path d="M5 20V10M12 20V4M19 20v-7"/>'),
+    people: svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.5 0 4 2 4 5"/>'),
+  };
   const nav = [['add', t('nav.add')], ['report', t('nav.reports')], ['people', t('nav.people')]]
-    .map(([k, n]) => `<button class="secondary" data-nav="${k}" ${view === k ? 'aria-current="page"' : ''}>${esc(n)}</button>`).join('');
-  // Sign out lives only at the bottom of the main (Add hours) page, away from the menu, and asks for confirmation.
-  const top = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>
-    <h1>${esc(title)}</h1>`;
-  $app.innerHTML = `${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
+    .map(([k, n]) => `<button class="tab" data-nav="${k}" ${view === k ? 'aria-current="page"' : ''}>${NAV_ICON[k]}<span class="sr">${esc(n)}</span></button>`).join('');
+  // The menu is a fixed header outside the first screen; sign out lives only at the bottom of the main (Add hours) page, away from the menu, and asks for confirmation.
+  const menu = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>`;
+  const top = `<h1>${esc(title)}</h1>`;
+  $app.innerHTML = `${menu}${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
     ${view === 'add' ? `<footer><button class="orange" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   bindMics($app);

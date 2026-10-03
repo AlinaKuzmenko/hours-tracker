@@ -1,4 +1,4 @@
-:root { --bg: #fff; --fg: #000; --accent: #000; --line: #000; --danger: #d32f2f; --focus: #0a4fd6; }
+:root { --brand: oklch(0.42 0.09 160); --brand-dark: oklch(0.27 0.06 160); --brand-tint: oklch(0.95 0.03 160); --brand-mid: oklch(0.86 0.1 128); --brand-2: oklch(0.52 0.11 152); --bg: #fff; --fg: #000; --accent: #000; --line: #000; --danger: #d32f2f; --focus: #0a4fd6; }
 * { box-sizing: border-box; }
 html { font-size: 26px; -webkit-text-size-adjust: 100%; color-scheme: light; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, Helvetica, Arial, sans-serif; line-height: 1.5; }
@@ -7,7 +7,7 @@ main { max-width: 40rem; margin: 0 auto; padding: 1rem; padding-left: max(1rem, 
 h1 { font-size: 1.6rem; margin: 1rem 0; }
 h2 { font-size: 1.3rem; margin: 1.5rem 0 .5rem; border-top: 3px solid var(--line); padding-top: 1rem; }
 h3 { font-size: 1.1rem; margin: 1rem 0 .25rem; }
-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: .9rem; margin-bottom: 1.5rem; }
+
 footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 3px solid var(--line); }
 label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
 input, select, button { font: inherit; min-height: 3rem; -webkit-appearance: none; appearance: none; touch-action: manipulation; width: 100%; padding: .6rem .8rem; border: 3px solid var(--fg); border-radius: .4rem; background: var(--bg); color: var(--fg); }
@@ -15,7 +15,7 @@ button { background: var(--fg); color: var(--bg); font-weight: bold; cursor: poi
 button.secondary { background: var(--bg); color: var(--fg); }
 button[aria-current="page"], button[aria-current="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
-button.orange { background: #ff9a1f; color: #000; border-color: #7a4300; }
+button.orange { background: oklch(0.82 0.15 70); color: #000; border-color: oklch(0.45 0.1 55); }
 button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 :focus-visible { outline: 6px solid var(--focus); outline-offset: 3px; }
@@ -34,8 +34,6 @@ li { overflow-wrap: anywhere; }
 @media (max-width: 480px) {
   html { font-size: 22px; }
   main { padding-top: .5rem; }
-  nav { gap: .4rem; }
-  nav button { margin-top: 0; padding: .5rem .25rem; font-size: .8rem; overflow-wrap: normal; word-break: normal; hyphens: none; }
   .row { gap: .5rem; }
 }
 @media (min-width: 900px) { html { font-size: 28px; } }
@@ -66,7 +64,7 @@ button.icon[aria-busy="true"] svg { opacity: .4; }
 dialog .row { margin-top: 0; }
 dialog .msg { margin: 1rem 0 0; }
 dialog h2 { margin-bottom: 1rem; }
-@media (max-width: 480px) { nav { gap: .6rem; } .entry-actions { flex-direction: column; gap: .6rem; } .entry-actions button.icon { width: 2.7rem; min-height: 2.7rem; height: 2.7rem; } }
+@media (max-width: 480px) { .entry-actions { flex-direction: column; gap: .6rem; } .entry-actions button.icon { width: 2.7rem; min-height: 2.7rem; height: 2.7rem; } }
 
 /* Invisible but inline punctuation: gives screen readers a pause without splitting the text into separate elements. */
 .pause { font-size: 0; line-height: 0; }
@@ -87,7 +85,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
 /* Main page "screens": each one fills the phone's height, so the first screen shows only the sentence input,
    the next one the manual fields, and the recent entries need another scroll. Plain scrolling, no snapping. */
-.screen { min-height: 100vh; min-height: 100svh; }
+.screen { min-height: calc(100vh - 5rem); min-height: calc(100svh - 5rem); }
 
 /* Custom dropdown (button + option dialog) */
 .field-label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
@@ -116,7 +114,7 @@ h2.period .p-mode { font-size: 1.3rem; }
 @media (prefers-reduced-motion: reduce) { .with-mic button.mic.listening { animation: none; } }
 
 /* Large mic button: the main way to enter data. Round, light blue with black text; red while recording. */
-button.mic-big { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; width: 6.65rem; height: 6.65rem; min-height: 0; margin: 1.5rem auto 0; padding: .35rem; border-radius: 50%; background: #4fc3f7; color: #000; border: 3px solid #0277bd; font-size: .78rem; line-height: 1.1; text-align: center; overflow-wrap: normal; }
+button.mic-big { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; width: 6.65rem; height: 6.65rem; min-height: 0; margin: 1.5rem auto 0; padding: .35rem; border-radius: 50%; background: var(--brand-mid); color: #000; border: 3px solid var(--brand); font-size: .78rem; line-height: 1.1; text-align: center; overflow-wrap: normal; }
 button.mic-big svg { width: 36px; height: 36px; flex: none; }
 button.mic-big.listening { background: var(--danger); border-color: #8e0000; color: #fff; animation: pulse 1.1s ease-in-out infinite; }
 #sentence { margin-top: 0; }
@@ -146,5 +144,21 @@ li.card.entry .card-pencil { flex: none; opacity: .7; }
 @media (max-width: 480px) { .date-row.has-mic { grid-template-columns: 2.5rem 1fr 2.5rem 2.5rem; gap: .35rem; } .date-row.has-mic input[type="date"] { font-size: .75rem; padding-left: .3rem; padding-right: .3rem; } }
 
 /* Small mic buttons: round and light blue like the big one, same footprint as before */
-.with-mic button.mic, .date-row button.mic { aspect-ratio: 1; height: auto; min-height: 0; align-self: center; border-radius: 50%; background: #4fc3f7; color: #000; border: 3px solid #0277bd; }
+.with-mic button.mic, .date-row button.mic { aspect-ratio: 1; height: auto; min-height: 0; align-self: center; border-radius: 50%; background: var(--brand-mid); color: #000; border: 3px solid var(--brand); }
 .with-mic button.mic.listening, .date-row button.mic.listening { background: var(--danger); border-color: #8e0000; color: #fff; }
+
+/* Fixed header menu: an indigo-to-violet bar that stays on screen; tabs are translucent white outlines, the current page is a solid white tile. */
+nav { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; margin: -1rem -1rem 1rem; padding: .5rem; padding-left: max(.5rem, env(safe-area-inset-left)); padding-right: max(.5rem, env(safe-area-inset-right)); background: linear-gradient(135deg, var(--brand), var(--brand-2)); box-shadow: 0 3px 10px oklch(0.27 0.06 160 / .35); }
+nav button.tab { margin: 0; min-height: 0; padding: .35rem .2rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem; background: rgba(255, 255, 255, .14); color: #fff; border: 3px solid rgba(255, 255, 255, .75); border-radius: .8rem; font-size: .72rem; line-height: 1.1; text-align: center; overflow-wrap: normal; word-break: normal; hyphens: none; }
+nav button.tab { min-height: 3.6rem; }
+nav button.tab svg { width: 2.1rem; height: 2.1rem; flex: none; }
+nav button.tab[aria-current="page"] { background: #fff; color: var(--brand-dark); border-color: #fff; }
+nav :focus-visible { outline-color: #fff; outline-offset: 2px; }
+@media (max-width: 480px) { main { padding-top: 1rem; } nav { margin-top: -1rem; } }
+/* Text fields with a mic: the field takes the full width, the round mic and clear buttons sit below it. */
+.with-mic.has-mic { grid-template-columns: 3.4rem 3.4rem 1fr; }
+.with-mic.has-mic > :first-child { grid-column: 1 / -1; }
+.with-mic.has-mic button.mic { order: 1; }
+.with-mic.has-mic button.clear { order: 2; }
+html { scroll-padding-top: 5.5rem; }
+.with-mic.has-mic button.clear { aspect-ratio: 1; height: auto; min-height: 0; align-self: center; }
