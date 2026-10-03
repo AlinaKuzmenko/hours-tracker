@@ -5,9 +5,14 @@ const { t, has, LANG } = I18N;
 const L = P.forLang(LANG);
 const { iso, addDays } = P;
 
+// Text size: "large" is the built-in large layout; "system" follows the text size / zoom set on the device. Remembered in this browser.
+const getSize = () => { try { return localStorage.getItem('textSize') === 'system' ? 'system' : 'large'; } catch { return 'large'; } };
+const applySize = (v) => document.documentElement.classList.toggle('size-system', v === 'system');
+applySize(getSize());
+
 let state = { people: [], entries: [] };
 let view = 'add';
-let report = { mode: 'thisWeek', personId: 'self' };
+let report = { mode: 'lastWeek', personId: 'self' }; // reports open on last week
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const personName = (id) => (id === 'self' ? t('me') : (state.people.find((p) => p.id === id) || { name: '?' }).name);
@@ -104,6 +109,10 @@ async function withBusy(btn, label, fn) {
 // A microphone button next to a text field: tap, speak, and the text lands in the field, so the keyboard
 // never has to open. Uses the browser's speech recognition (Chrome, Safari); where it is missing the buttons are not shown.
 const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+// Voice input is only offered on computers: on phones and tablets the browser's speech recognition is unreliable,
+// and the keyboard's own dictation can be used there instead.
+const IS_TOUCH_DEVICE = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || window.matchMedia('(pointer: coarse)').matches;
+const voiceAvailable = () => !!getSR() && !IS_TOUCH_DEVICE;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -123,12 +132,12 @@ function micReset() {
 // With `mic: false` only the clear button is added (the main mic button is elsewhere).
 function fieldWithMic(inputHtml, id, label, submitForm, mic = true) {
   const clear = `<button type="button" class="clear" data-clear="${id}" aria-label="${esc(t('clear.aria', { field: label }))}">${ICON_CLEAR}</button>`;
-  const micBtn = mic && getSR() ? `<button type="button" class="mic" data-mic="${id}" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
+  const micBtn = mic && voiceAvailable() ? `<button type="button" class="mic" data-mic="${id}" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
   return `<div class="with-mic ${micBtn ? 'has-mic' : ''}">${inputHtml}${clear}${micBtn}</div>`;
 }
 // The main way to enter data: a large mic button. The text field stays available for typing.
 function bigMic(id, label, submitForm) {
-  if (!getSR()) return '';
+  if (!voiceAvailable()) return '';
   return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button><p id="micTrail" class="mic-trail" aria-hidden="true"></p>`;
 }
 // Pressing or tabbing to anything other than the recording button ends the recording. What was heard so far
@@ -334,7 +343,18 @@ function shell(title, inner, first) {
   const menu = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>`;
   const top = `<h1>${esc(title)}</h1>`;
   $app.innerHTML = `${menu}${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
-    ${view === 'add' ? `<footer><button class="terracotta" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
+    ${view === 'add' ? `<footer>
+      <div class="size-pick" role="group" aria-labelledby="size-title">
+        <p id="size-title" class="field-label">${esc(t('size.title'))}</p>
+        <div class="row">${['large', 'system'].map((v) => `<button type="button" class="secondary size" data-size="${v}" aria-pressed="${getSize() === v}">${esc(t('size.' + v))}</button>`).join('')}</div>
+      </div>
+      <button class="terracotta" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
+  $app.querySelectorAll('[data-size]').forEach((b) => (b.onclick = () => {
+    try { localStorage.setItem('textSize', b.dataset.size); } catch {}
+    applySize(b.dataset.size);
+    $app.querySelectorAll('[data-size]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    say(t('size.set', { name: t('size.' + b.dataset.size) }));
+  }));
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   bindMics($app);
   bindDayArrows($app);
@@ -407,12 +427,12 @@ const personOptions = () => state.people.map((p) => ({ value: p.id, text: person
 // A number field with - / + buttons. Also: arrow keys, and dragging up/down on touch screens.
 // The value is always kept within min..max.
 function stepperHtml(id, label, min, max, value, big = 1) {
-  return `<label for="${id}">${esc(label)}</label>
+  return `<div class="field"><label for="${id}">${esc(label)}</label>
     <div class="stepper">
       <button type="button" class="step" data-step="-1" data-for="${id}" aria-label="${esc(t('step.less', { field: big > 1 ? `${label} (${big})` : label }))}">&minus;</button>
       <input id="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${value}" data-big="${big}">
       <button type="button" class="step" data-step="1" data-for="${id}" aria-label="${esc(t('step.more', { field: big > 1 ? `${label} (${big})` : label }))}">+</button>
-    </div>`;
+    </div></div>`;
 }
 function makeStepper(root, id) {
   const input = root.querySelector('#' + id);
@@ -493,7 +513,7 @@ function bindDayArrows(root) {
 }
 // A calendar field with arrows on both sides and, where speech recognition exists, a mic button that fills it from a spoken date.
 function dateFieldWithMic(id, label, value) {
-  const micBtn = getSR() ? `<button type="button" class="mic" data-mic="${id}" data-date="1" data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
+  const micBtn = voiceAvailable() ? `<button type="button" class="mic" data-mic="${id}" data-date="1" data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}</button>` : '';
   return `<label for="${id}">${esc(label)}</label>
     <div class="date-row ${micBtn ? 'has-mic' : ''}">
       <button type="button" class="step" data-day="-1" data-for="${id}" aria-label="${esc(t('date.prev'))}">${ICON_PREV}</button>
@@ -531,8 +551,10 @@ function editDialog(e, opener, save) {
       <h2 id="dlg-info" tabindex="-1">${esc(t('dlg.editEntry'))}</h2>
       ${pickerHtml('e-who', t('add.who'), personOptions(), e.personId)}
       ${whenHtml('e-')}
-      ${stepperHtml('e-h', t('add.hours'), 0, 24, Math.floor(e.minutes / 60))}
-      ${stepperHtml('e-m', t('add.minutes'), 0, 59, e.minutes % 60, 5)}
+      <div class="hm">
+        ${stepperHtml('e-h', t('add.hours'), 0, 24, Math.floor(e.minutes / 60))}
+        ${stepperHtml('e-m', t('add.minutes'), 0, 59, e.minutes % 60, 5)}
+      </div>
       <p id="e-err" class="msg" role="alert" hidden></p>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button>
@@ -658,8 +680,10 @@ function renderAdd() {
         <legend>${esc(t('add.legend'))}</legend>
         ${pickerHtml('who', t('add.who'), personOptions(), 'self')}
         ${whenHtml('', true)}
-        ${stepperHtml('h', t('add.hours'), 0, 24, 0)}
-        ${stepperHtml('m', t('add.minutes'), 0, 59, 0, 5)}
+        <div class="hm">
+          ${stepperHtml('h', t('add.hours'), 0, 24, 0)}
+          ${stepperHtml('m', t('add.minutes'), 0, 59, 0, 5)}
+        </div>
         <button type="submit" id="save">${esc(t('add.save'))}</button>
       </fieldset>
     </form>

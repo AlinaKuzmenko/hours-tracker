@@ -173,3 +173,17 @@ button.mic-big:focus-visible { box-shadow: 0 0 0 3px var(--bg), 0 0 0 7px var(--
 ul.people li.entry { flex-direction: column; align-items: stretch; gap: .9rem; }
 ul.people .entry-actions { flex-direction: row; gap: .75rem; width: 100%; }
 ul.people .entry-actions button.icon { flex: 1; width: auto; min-height: 2.9rem; height: 2.9rem; }
+
+/* Computers: a wider page, with hours and minutes side by side so the form fits on one screen. */
+@media (min-width: 760px) and (pointer: fine) {
+  main { max-width: 56rem; }
+  .hm { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  dialog { width: min(40rem, calc(100vw - 2rem)); }
+}
+
+/* Text size choice: "Like the device" uses the browser's own base size, so the system zoom / text size applies once, not on top of the large layout. */
+html.size-system { font-size: 100%; }
+.size-pick { margin-bottom: 2rem; }
+.size-pick .row { margin-top: .25rem; }
+button.size { margin: 0; }
+button.size[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
