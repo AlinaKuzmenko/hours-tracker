@@ -10,7 +10,6 @@ let view = 'add';
 let report = { mode: 'thisWeek', personId: 'self' };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const personRole = (id) => (state.people.find((p) => p.id === id) || {}).role || '';
 const personName = (id) => (id === 'self' ? t('me') : (state.people.find((p) => p.id === id) || { name: '?' }).name);
 const $ = (id) => $app.querySelector('#' + id);
 
@@ -42,6 +41,15 @@ async function call(method, url, data) {
 }
 async function refresh() { state = await call('GET', '/api/data'); }
 function focusHeading() { const h = $app.querySelector('h1'); if (h) { h.tabIndex = -1; h.focus(); } }
+
+// Tapping the dimmed area around a dialog (the backdrop) closes it like Cancel does. A click on the backdrop is
+// reported with the dialog itself as the target, so the pointer position tells it apart from a click on the dialog's padding.
+document.addEventListener('click', (e) => {
+  const d = e.target;
+  if (!d || d.tagName !== 'DIALOG' || !d.open) return;
+  const r = d.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+});
 
 // Accessible confirmation dialog (native <dialog>: focus trap, Esc to cancel, background made inert).
 // Focus moves to the info paragraph so a screen reader reads it as soon as the dialog opens.
@@ -326,13 +334,13 @@ function shell(title, inner, first) {
   const menu = `<nav aria-label="${esc(t('nav.label'))}">${nav}</nav>`;
   const top = `<h1>${esc(title)}</h1>`;
   $app.innerHTML = `${menu}${first === undefined ? top : `<div class="screen">${top}${first}</div>`}${inner}
-    ${view === 'add' ? `<footer><button id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
+    ${view === 'add' ? `<footer><button class="terracotta" id="logout">${esc(t('nav.logout'))}</button></footer>` : ''}`;
   $app.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   bindMics($app);
   bindDayArrows($app);
   if ($('logout')) $('logout').onclick = async (e) => {
     const b = e.currentTarget;
-    if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: '', opener: b }))) return;
+    if (!(await confirmDialog({ title: t('dlg.logoutTitle'), detail: t('dlg.logoutDetail'), okLabel: t('nav.logout'), okClass: 'terracotta', opener: b }))) return;
     await call('POST', '/api/logout').catch(() => {});
     renderLogin();
   };
@@ -576,8 +584,6 @@ function personDialog(person, opener, save) {
       <h2 id="dlg-info" tabindex="-1">${esc(t('people.editTitle'))}</h2>
       ${self ? '' : `<label for="p-name">${esc(t('people.nameLabel'))}</label>
       ${fieldWithMic('<input id="p-name" autocomplete="off">', 'p-name', t('people.nameLabel'))}`}
-      <label for="p-role">${esc(t('people.roleLabel'))}</label>
-      ${fieldWithMic('<input id="p-role" autocomplete="off">', 'p-role', t('people.roleLabel'))}
       <p id="p-err" class="msg" role="alert" hidden></p>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">${esc(t('dlg.cancel'))}</button>
@@ -585,7 +591,6 @@ function personDialog(person, opener, save) {
       </div></form>`;
     const q = (id) => d.querySelector('#' + id);
     if (!self) q('p-name').value = person.name;
-    q('p-role').value = person.role || '';
     bindMics(d);
     let done = false;
     const finish = (ok) => {
@@ -606,7 +611,7 @@ function personDialog(person, opener, save) {
       const name = self ? person.name : q('p-name').value.trim();
       if (!name) return fail(t('people.emptyName'));
       await withBusy(q('p-save'), t('busy.saving'), async () => {
-        try { await save({ name, role: q('p-role').value.trim() }); } catch (err) { return fail(err.message === 'auth' ? t('err.generic') : errText(err)); }
+        try { await save({ name }); } catch (err) { return fail(err.message === 'auth' ? t('err.generic') : errText(err)); }
         finish(true);
       });
     };
@@ -772,7 +777,7 @@ function period() {
 function renderReport() {
   const people = state.people.map((p) => [p.id, personName(p.id)]);
   if (!state.people.some((p) => p.id === report.personId)) report.personId = 'self';
-  const personLabel = () => personName(report.personId) + (personRole(report.personId) ? `, ${personRole(report.personId)}` : '');
+  const personLabel = () => personName(report.personId);
 
   shell(t('report.title'), `
     <h2>${esc(t('report.people'))}</h2>
@@ -838,11 +843,9 @@ function renderPeople() {
     <h2 id="listTitle" tabindex="-1">${esc(t('people.list'))}</h2>
     <div id="peopleList"></div>
     <h2>${esc(t('people.addTitle'))}</h2>
-    <form id="f">
+    <form id="f" class="stack">
       <label for="name">${esc(t('people.nameLabel'))}</label>
       ${fieldWithMic('<input id="name" autocomplete="off">', 'name', t('people.nameLabel'))}
-      <label for="role">${esc(t('people.roleLabel'))}</label>
-      ${fieldWithMic('<input id="role" autocomplete="off">', 'role', t('people.roleLabel'))}
       <button type="submit" id="add">${esc(t('people.add'))}</button>
     </form>`);
 
@@ -850,9 +853,9 @@ function renderPeople() {
     // "Me" is always there and cannot be changed, so it is not listed here (it is always in the picker on the main page).
     const others = state.people.filter((p) => p.id !== 'self');
     if (!others.length) { $('peopleList').innerHTML = `<p>${esc(t('people.none'))}</p>`; return; }
-    $('peopleList').innerHTML = `<ul>${others.map((p) => {
-      const text = `<span class="e-name">${esc(personName(p.id))}</span>${p.role ? `<span class="pause">, </span><br><span>${esc(p.role)}</span>` : ''}`;
-      const label = personName(p.id) + (p.role ? `, ${p.role}` : '');
+    $('peopleList').innerHTML = `<ul class="people">${others.map((p) => {
+      const text = `<span class="e-name">${esc(personName(p.id))}</span>`;
+      const label = personName(p.id);
       // Cards look like the entry cards: pencil and trash buttons; tapping the text also opens the edit dialog.
       return `<li class="card entry"><p class="entry-text card-tap" data-tap="${p.id}">${text}</p><div class="entry-actions">
         <button class="icon secondary" data-editp="${p.id}" title="${esc(t('entry.edit'))}" aria-label="${esc(t('people.editAria', { name: label }))}">${ICON_EDIT}</button>
@@ -872,7 +875,7 @@ function renderPeople() {
     }));
     $('peopleList').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
       const n = personName(b.dataset.rm);
-      if (!(await confirmDialog({ title: t('dlg.deletePerson'), lines: [n, personRole(b.dataset.rm)].filter(Boolean), detail: t('dlg.personDetail'), okLabel: t('dlg.delete'), opener: b }))) return;
+      if (!(await confirmDialog({ title: t('dlg.deletePerson'), lines: [n], detail: t('dlg.personDetail'), okLabel: t('dlg.delete'), opener: b }))) return;
       await withBusy(b, t('busy.deleting'), async () => {
         await call('DELETE', '/api/people/' + b.dataset.rm);
         await refresh(); fillPeople(); say(t('people.removed', { name: n })); focusSoon($('listTitle'), 100);
@@ -883,11 +886,11 @@ function renderPeople() {
 
   $('f').onsubmit = async (e) => {
     e.preventDefault();
-    const name = $('name').value.trim(), role = $('role').value.trim();
+    const name = $('name').value.trim();
     if (!name) return warn(t('people.emptyName'));
     await withBusy($('add'), t('busy.adding'), async () => {
-      try { await call('POST', '/api/people', { name, role }); } catch (err) { return err.message !== 'auth' && warn(errText(err)); }
-      await refresh(); fillPeople(); $('name').value = ''; $('role').value = ''; say(t('people.added', { name }));
+      try { await call('POST', '/api/people', { name }); } catch (err) { return err.message !== 'auth' && warn(errText(err)); }
+      await refresh(); fillPeople(); $('name').value = ''; say(t('people.added', { name }));
     });
   };
 }
