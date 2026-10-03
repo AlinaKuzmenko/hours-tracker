@@ -12,7 +12,7 @@ applySize(getSize());
 
 let state = { people: [], entries: [] };
 let view = 'add';
-let report = { mode: 'lastWeek', personId: 'self' }; // reports open on last week
+let report = { mode: 'thisWeek', personId: 'self' }; // reports open on the current week
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const personName = (id) => (id === 'self' ? t('me') : (state.people.find((p) => p.id === id) || { name: '?' }).name);
