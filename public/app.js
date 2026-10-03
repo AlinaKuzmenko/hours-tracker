@@ -138,7 +138,7 @@ function fieldWithMic(inputHtml, id, label, submitForm, mic = true) {
 // The main way to enter data: a large mic button. The text field stays available for typing.
 function bigMic(id, label, submitForm) {
   if (!voiceAvailable()) return '';
-  return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button><p id="micTrail" class="mic-trail" aria-hidden="true"></p>`;
+  return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button>`;
 }
 // Pressing or tabbing to anything other than the recording button ends the recording. What was heard so far
 // stays in the field (it is written there while speaking), so e.g. pressing "Erkennen" uses it.
@@ -188,12 +188,12 @@ function bindMics(root) {
       // the plain mode is used instead (remembered for this browser session).
       let plain = false;
       try { plain = sessionStorage.getItem('micPlain') === '1'; } catch {}
-      // Diagnostics: a short trail of what the recogniser did, shown under the button so it can be reported.
-      const trailEl = root.querySelector('#micTrail');
+      // Diagnostics: a short trail of what the recogniser did (not shown; used to tell whether any sound or result arrived).
       const t0 = Date.now(), trail = [];
-      const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${plain ? 'plain' : 'continuous'}: ${trail.join(' › ')}`; };
+      const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); };
       const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-      const release = () => { if (micStop === stop) micStop = null; if (micStopQuiet === stopQuiet) micStopQuiet = null; if (micAbort === abort) micAbort = null; };
+      let limitTimer = null; // a recording ends by itself after 2 minutes
+      const release = () => { clearTimeout(limitTimer); if (micStop === stop) micStop = null; if (micStopQuiet === stopQuiet) micStopQuiet = null; if (micAbort === abort) micAbort = null; };
       const stop = () => { manualStop = true; try { if (rec) rec.stop(); } catch {} };
       const stopQuiet = () => { quiet = true; stop(); };
       const abort = () => { discarded = true; clearTimeout(watchdog); try { if (rec) rec.abort(); } catch {} setListening(false); release(); };
@@ -289,6 +289,7 @@ function bindMics(root) {
       micAbort = abort;
       setListening(true);
       mark('tap');
+      limitTimer = setTimeout(() => { if (!discarded && !failed) { say(t('mic.timeLimit')); stop(); } }, 2 * 60 * 1000);
       // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
       // If the reused recogniser is still busy, a new one is used.
       try { begin(false); } catch {
@@ -762,7 +763,6 @@ function renderAdd() {
       who.set('self');
       when.set(iso(new Date()));
       $('h').value = 0; $('m').value = 0;
-      const trailEl = $('micTrail'); if (trailEl) trailEl.textContent = '';
       fillRecent();
       say(message);
     });
