@@ -100,7 +100,15 @@ const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 let micStop = null; // finishes the running recording and uses what it heard
+let micStopQuiet = null; // finishes the running recording, keeps what it heard in the field, but does not recognise it
+let sharedRec = null; // one recogniser is reused between recordings; it is replaced after every saved entry and when the page changes
+let micSession = 0; // number of the current recording; events of older recordings are ignored
 let micAbort = null; // cancels the running recording and drops what it heard (clear button, closing a dialog)
+// Cancels any recording and forgets the recogniser, so the next recording starts from a clean state.
+function micReset() {
+  if (micAbort) micAbort();
+  if (sharedRec) { try { sharedRec.abort(); } catch {} sharedRec = null; }
+}
 
 // A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
 // Every such field also gets a clear (x) button, for when the text was recognised badly.
@@ -118,10 +126,10 @@ function bigMic(id, label, submitForm) {
 // Pressing or tabbing to anything other than the recording button ends the recording. What was heard so far
 // stays in the field (it is written there while speaking), so e.g. pressing "Erkennen" uses it.
 function stopRecordingOnOtherControl(e) {
-  if (!micAbort) return;
+  if (!micStopQuiet) return;
   const el = e.target && e.target.closest ? e.target.closest('button, a, input, select, textarea, summary, [role=radio]') : null;
   if (!el || el.classList.contains('listening')) return;
-  micAbort();
+  micStopQuiet();
 }
 document.addEventListener('pointerdown', stopRecordingOnOtherControl, true);
 document.addEventListener('focusin', stopRecordingOnOtherControl, true);
@@ -157,7 +165,8 @@ function bindMics(root) {
       const base = input.value.trim(); // what is already in the field stays; speech is appended to it
       let rec = null;
       let heard = '';
-      let discarded = false, manualStop = false, failed = false, retried = false, sawSound = false, watchdog = null;
+      const sid = ++micSession;
+      let discarded = false, manualStop = false, quiet = false, failed = false, retried = false, sawSound = false, watchdog = null;
       // A pause while thinking should not end the recording. If continuous mode has failed before on this device,
       // the plain mode is used instead (remembered for this browser session).
       let plain = false;
@@ -167,8 +176,9 @@ function bindMics(root) {
       const t0 = Date.now(), trail = [];
       const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${plain ? 'plain' : 'continuous'}: ${trail.join(' › ')}`; };
       const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-      const release = () => { if (micStop === stop) micStop = null; if (micAbort === abort) micAbort = null; };
+      const release = () => { if (micStop === stop) micStop = null; if (micStopQuiet === stopQuiet) micStopQuiet = null; if (micAbort === abort) micAbort = null; };
       const stop = () => { manualStop = true; try { if (rec) rec.stop(); } catch {} };
+      const stopQuiet = () => { quiet = true; stop(); };
       const abort = () => { discarded = true; clearTimeout(watchdog); try { if (rec) rec.abort(); } catch {} setListening(false); release(); };
       const hint = () => { mark('silent'); warn(t('mic.silent')); };
 
@@ -189,13 +199,14 @@ function bindMics(root) {
         if (manualStop) { abort(); return; }
         await new Promise((r) => setTimeout(r, 300));
         if (discarded) return;
-        try { begin(); mark('restarted'); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
+        try { begin(true); mark('restarted'); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
       };
 
-      const begin = () => {
-        const r = new (getSR())();
+      // `fresh` forces a new recogniser; otherwise the shared one is reused.
+      const begin = (fresh) => {
+        const r = fresh || !sharedRec ? (sharedRec = new (getSR())()) : sharedRec;
         rec = r;
-        const mine = () => r === rec && !discarded;
+        const mine = () => sid === micSession && r === rec && !discarded;
         r.lang = SPEECH_LANG;
         r.interimResults = true;
         r.continuous = !plain;
@@ -236,13 +247,14 @@ function bindMics(root) {
           if (e.error !== 'aborted') { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
         };
         r.onend = () => {
-          if (r !== rec) return; // an old recogniser that was replaced
+          if (sid !== micSession || r !== rec) return; // an older recording, or a recogniser that was replaced
           clearTimeout(watchdog);
           mark('end');
           if (!plain && !heard && !discarded && !manualStop) { try { sessionStorage.setItem('micPlain', '1'); } catch {} } // nothing came out of continuous mode: use plain mode next time
           setListening(false);
           release();
           if (discarded || failed) return;
+          if (quiet) return; // stopped because something else was pressed: the text stays in the field as it is
           if (!heard) return warn(t('mic.nothing'));
           if (btn.dataset.date) { if (!L.parseDateText(heard, new Date(), true)) warn(t('msg.badDate')); return; }
           if (btn.dataset.submit) {
@@ -256,11 +268,15 @@ function bindMics(root) {
       };
 
       micStop = stop;
+      micStopQuiet = stopQuiet;
       micAbort = abort;
       setListening(true);
       mark('tap');
       // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
-      try { begin(); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
+      // If the reused recogniser is still busy, a new one is used.
+      try { begin(false); } catch {
+        try { begin(true); } catch (err) { abort(); warn(`${t('mic.failed')} (${(err && err.name) || 'start'})`); }
+      }
     };
   });
 }
@@ -296,7 +312,7 @@ function renderLogin() {
 // `first` (optional) is the content of a full-height first screen together with the menu and heading;
 // `inner` is everything after it.
 function shell(title, inner, first) {
-  if (micAbort) micAbort(); // a recording must not outlive the page it belongs to
+  micReset(); // a recording must not outlive the page it belongs to
   document.title = title;
   const svg = (p) => `<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${p}</svg>`;
   const NAV_ICON = {
@@ -711,7 +727,8 @@ function renderAdd() {
       } catch (err) { return err.message !== 'auth' && warn(t('msg.saveFailed')); }
       await refresh();
       const message = t('msg.saved', { summary: text });
-      // Reset everything in place (no page reload). Focus is deliberately not moved.
+      // Reset everything in place; the next voice recording starts with a fresh recogniser. Focus is deliberately not moved.
+      micReset();
       $('sentence').value = '';
       who.set('self');
       when.set(iso(new Date()));
@@ -830,14 +847,18 @@ function renderPeople() {
     </form>`);
 
   function fillPeople() {
-    $('peopleList').innerHTML = `<ul>${state.people.map((p) => {
+    // "Me" is always there and cannot be changed, so it is not listed here (it is always in the picker on the main page).
+    const others = state.people.filter((p) => p.id !== 'self');
+    if (!others.length) { $('peopleList').innerHTML = `<p>${esc(t('people.none'))}</p>`; return; }
+    $('peopleList').innerHTML = `<ul>${others.map((p) => {
       const text = `<span class="e-name">${esc(personName(p.id))}</span>${p.role ? `<span class="pause">, </span><br><span>${esc(p.role)}</span>` : ''}`;
       const label = personName(p.id) + (p.role ? `, ${p.role}` : '');
-      // The owner's own card ("Me") is plain text, not editable. Other cards: the whole text area is one button that opens the edit dialog.
-      if (p.id === 'self') return `<li class="card entry"><p class="entry-text">${text}</p></li>`;
-      return `<li class="card entry"><button type="button" class="card-main" data-editp="${p.id}" aria-label="${esc(t('people.editAria', { name: label }))}"><span class="entry-text">${text}</span><span class="card-pencil" aria-hidden="true">${ICON_EDIT}</span></button><div class="entry-actions">
+      // Cards look like the entry cards: pencil and trash buttons; tapping the text also opens the edit dialog.
+      return `<li class="card entry"><p class="entry-text card-tap" data-tap="${p.id}">${text}</p><div class="entry-actions">
+        <button class="icon secondary" data-editp="${p.id}" title="${esc(t('entry.edit'))}" aria-label="${esc(t('people.editAria', { name: label }))}">${ICON_EDIT}</button>
         <button class="icon danger" data-rm="${p.id}" title="${esc(t('entry.delete'))}" aria-label="${esc(t('people.removeAria', { name: p.name }))}">${ICON_DELETE}</button></div></li>`;
     }).join('')}</ul>`;
+    $('peopleList').querySelectorAll('[data-tap]').forEach((p) => (p.onclick = () => p.closest('li').querySelector('[data-editp]').click()));
     $('peopleList').querySelectorAll('[data-editp]').forEach((b) => (b.onclick = async () => {
       const person = state.people.find((x) => x.id === b.dataset.editp);
       if (!person) return;

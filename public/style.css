@@ -89,7 +89,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 /* Custom dropdown (button + option dialog) */
 .field-label { display: block; font-weight: bold; margin: 1rem 0 .25rem; }
 button.picker { display: block; margin: 0; background: var(--bg); color: var(--fg); font-weight: normal; text-align: left; padding-right: 2.5rem; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 1.4rem) 55%, calc(100% - 1rem) 55%; background-size: .45rem .45rem; background-repeat: no-repeat; }
-.picker-options { display: grid; gap: .75rem; max-height: 60vh; overflow: auto; padding: 4px; }
+.picker-options { display: grid; gap: 1rem; max-height: 60vh; overflow: auto; padding: 12px; margin: -12px; }
 .picker-options button { margin: 0; text-align: left; background: var(--bg); color: var(--fg); font-weight: normal; }
 .picker-options button[aria-checked="true"] { background: var(--fg); color: var(--bg); font-weight: bold; }
 .picker-options button[aria-checked="true"] span::after { content: " \2713"; }
@@ -122,9 +122,6 @@ button.mic-big.listening { background: var(--danger); border-color: #8e0000; col
 /* On-screen warning banner */
 #toast { position: fixed; left: 1rem; right: 1rem; bottom: 1rem; z-index: 10; padding: .9rem 1rem; background: #fff; color: #000; border: 4px solid var(--danger); border-radius: .6rem; font-size: .95rem; font-weight: bold; box-shadow: 0 .4rem 1.2rem rgba(0, 0, 0, .35); }
 
-/* A person card whose whole text area is a button */
-li.card.entry .card-main { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: .75rem; margin: 0; padding: 0; min-height: 3rem; background: transparent; color: inherit; border: 0; border-radius: .3rem; text-align: left; font-weight: normal; }
-li.card.entry .card-pencil { flex: none; opacity: .7; }
 .entry-text { display: block; }
 
 .mic-trail { margin: .6rem 0 0; font-size: .6rem; line-height: 1.3; opacity: .65; text-align: center; word-break: break-word; }
@@ -161,3 +158,8 @@ nav :focus-visible { outline-color: #fff; outline-offset: 2px; }
 .with-mic.has-mic button.clear { order: 2; }
 html { scroll-padding-top: 5.5rem; }
 .with-mic.has-mic button.clear { aspect-ratio: 1; height: auto; min-height: 0; align-self: center; }
+
+/* Focus ring inside dialogs: a box-shadow ring follows the rounded corners and is never cut off at the edges (the lists scroll, so they have padding for it). */
+dialog :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--bg), 0 0 0 7px var(--focus); }
+
+.card-tap { cursor: pointer; }
