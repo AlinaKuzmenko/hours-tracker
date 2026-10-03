@@ -21,18 +21,15 @@ async function call(method, url, data) {
   return j;
 }
 // Accessible confirmation dialog (native <dialog>: focus trap, Esc to cancel, background made inert).
-// Focus moves to the info group, whose aria-label holds the full text, so a screen reader reads it as soon as the dialog opens.
+// Focus moves to the info paragraph so a screen reader reads it as soon as the dialog opens.
 function confirmDialog({ title, lines = [], detail, okLabel, opener }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.setAttribute('role', 'alertdialog');
     d.setAttribute('aria-labelledby', 'dlg-info');
-    const spoken = [title, ...lines, detail].filter(Boolean).join(', ');
-    d.innerHTML = `<div id="dlg-info" role="group" tabindex="-1" aria-label="${esc(spoken)}">
-        <h2>${esc(title)}</h2>
-        ${lines.map((l) => `<div class="dlg-line">${esc(l)}</div>`).join('')}
-        ${detail ? `<p>${esc(detail)}</p>` : ''}
-      </div>
+    // One single element (lines separated by <br>, with hidden commas for pauses), so a screen reader reads it all in one go.
+    const parts = [`<span class="dlg-title">${esc(title)}</span>`, ...lines.map((l) => `<span class="dlg-line">${esc(l)}</span>`), ...(detail ? [`<span class="dlg-detail">${esc(detail)}</span>`] : [])];
+    d.innerHTML = `<p id="dlg-info" tabindex="-1">${parts.join('<span class="sr">, </span><br>')}</p>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">Скасувати</button>
         <button type="button" class="danger-solid" data-act="ok">${esc(okLabel)}</button>
