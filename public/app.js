@@ -35,7 +35,7 @@ function confirmDialog({ title, lines = [], detail, okLabel, opener }) {
       </div>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">Скасувати</button>
-        <button type="button" data-act="ok">${esc(okLabel)}</button>
+        <button type="button" class="danger-solid" data-act="ok">${esc(okLabel)}</button>
       </div>`;
     let done = false;
     const finish = (ok) => {

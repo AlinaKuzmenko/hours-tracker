@@ -1,6 +1,6 @@
-:root { --bg: #000; --fg: #ffe600; --accent: #fff; --line: #ffe600; }
+:root { --bg: #fff; --fg: #000; --accent: #000; --line: #000; --danger: #b00020; --focus: #0a4fd6; }
 * { box-sizing: border-box; }
-html { font-size: 26px; -webkit-text-size-adjust: 100%; color-scheme: dark; }
+html { font-size: 26px; -webkit-text-size-adjust: 100%; color-scheme: light; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, Helvetica, Arial, sans-serif; line-height: 1.5; }
 main { max-width: 40rem; margin: 0 auto; padding: 1rem; padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); padding-bottom: max(2rem, env(safe-area-inset-bottom)); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -13,9 +13,10 @@ input, select, button { font: inherit; min-height: 3rem; -webkit-appearance: non
 button { background: var(--fg); color: var(--bg); font-weight: bold; cursor: pointer; margin-top: .75rem; }
 button.secondary { background: var(--bg); color: var(--fg); }
 button[aria-current="page"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-button.danger { background: var(--bg); color: var(--fg); border-style: dashed; }
+button.danger { background: var(--bg); color: var(--danger); border-color: var(--danger); }
+button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-:focus-visible { outline: 6px solid var(--accent); outline-offset: 3px; }
+:focus-visible { outline: 6px solid var(--focus); outline-offset: 3px; }
 ul { list-style: none; padding: 0; margin: 0; }
 li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
 .total { font-size: 1.2rem; font-weight: bold; }
@@ -43,7 +44,7 @@ button[aria-busy="true"]::after { content: ""; display: inline-block; width: .8e
 @media (prefers-reduced-motion: reduce) { button[aria-busy="true"]::after { animation: none; } }
 
 dialog { width: min(32rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; margin: auto; padding: 1rem; background: var(--bg); color: var(--fg); border: 5px solid var(--accent); border-radius: .6rem; }
-dialog::backdrop { background: rgba(0, 0, 0, .88); }
+dialog::backdrop { background: rgba(0, 0, 0, .6); }
 dialog h2 { border: 0; padding: 0; margin: 0 0 .75rem; text-transform: uppercase; font-size: 1rem; opacity: .85; line-height: 1.3; overflow-wrap: anywhere; }
 dialog p { margin: 1rem 0; }
 dialog #dlg-info { margin-bottom: 1rem; }
