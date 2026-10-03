@@ -99,8 +99,8 @@ const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-let micStop = null; // stops the recording that is currently running
-let micDiscard = null; // makes the running recording drop what it hears (used by the clear button)
+let micStop = null; // finishes the running recording and uses what it heard
+let micAbort = null; // cancels the running recording and drops what it heard (clear button, closing a dialog)
 
 // A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
 // Every such field also gets a clear (x) button, for when the text was recognised badly.
@@ -115,12 +115,16 @@ function bigMic(id, label, submitForm) {
   if (!getSR()) return '';
   return `<button type="button" class="mic mic-big" data-mic="${id}" data-big="1" ${submitForm ? `data-submit="${submitForm}"` : ''} data-field="${esc(label)}" aria-pressed="false" aria-label="${esc(t('mic.start', { field: label }))}">${ICON_MIC}<span class="mic-text">${esc(t('mic.speak'))}</span></button>`;
 }
+// Does the sentence already say how long? Then it can be recognised (a missing person or date is handled there).
+function isCompleteSentence(text) {
+  return !!L.parseSentence(text, state.people).minutes;
+}
+
 function bindMics(root) {
   root.querySelectorAll('[data-clear]').forEach((btn) => {
     btn.onclick = () => {
       const input = root.querySelector('#' + btn.dataset.clear);
-      if (micDiscard) micDiscard(); // a recording in progress must not write the text back
-      if (micStop) micStop();
+      if (micAbort) micAbort(); // a recording in progress must not write the text back
       input.value = '';
       say(t('clear.done')); // focus stays on the button, so the keyboard does not open
     };
@@ -136,40 +140,48 @@ function bindMics(root) {
       if (text) text.textContent = on ? t('mic.stop') : t('mic.speak');
     };
     btn.onclick = () => {
-      if (micStop) { const stopping = btn.classList.contains('listening'); micStop(); if (stopping) return; }
+      // Tapping the button while it is recording finishes the recording (and uses the text).
+      if (btn.classList.contains('listening') && micStop) { micStop(); return; }
+      if (micAbort) micAbort(); // never two recordings at once (Safari then refuses to start the new one)
       const rec = new (getSR())();
       rec.lang = SPEECH_LANG;
       rec.interimResults = true;
-      rec.continuous = false;
+      rec.continuous = true; // a pause while thinking does not end the recording
       rec.maxAlternatives = 1;
+      const base = input.value.trim(); // what is already in the field stays; speech is appended to it
       let heard = '';
-      let discarded = false;
-      micDiscard = () => { discarded = true; };
+      let discarded = false, manualStop = false, failed = false;
       rec.onresult = (e) => {
         if (discarded) return;
         heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
-        input.value = heard;
+        input.value = (base ? base + ' ' : '') + heard;
       };
-      let failed = false;
       rec.onerror = (e) => {
         const key = { 'not-allowed': 'mic.denied', 'service-not-allowed': 'mic.denied', 'no-speech': 'mic.nothing', 'audio-capture': 'mic.noMic' }[e.error];
         // Chrome/Firefox/Edge on iPhone are not allowed to use speech recognition even when the microphone is switched on in Settings.
         const iosOtherBrowser = /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-        if (e.error !== 'aborted') { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
+        if (e.error !== 'aborted' && !discarded) { failed = true; warn(iosOtherBrowser && (key === 'mic.denied' || !key) ? t('mic.iosBrowser') : `${t(key || 'mic.failed')} (${e.error})`); }
       };
+      const release = () => { if (micStop === stop) micStop = null; if (micAbort === abort) micAbort = null; };
       rec.onend = () => {
         setListening(false);
-        if (micStop === stop) micStop = null;
-        if (micDiscard && discarded) micDiscard = null;
-        if (discarded) return;
-        if (!heard && !failed) warn(t('mic.nothing'));
-        if (heard && btn.dataset.submit) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
+        release();
+        if (discarded || failed) return;
+        if (!heard) return warn(t('mic.nothing'));
+        if (btn.dataset.submit) {
+          // After a manual stop the sentence is used as it is. If the recording ended by itself (a long pause)
+          // an unfinished sentence is kept and the user is asked to continue instead of showing an error.
+          if (manualStop || isCompleteSentence(input.value)) { const f = root.querySelector('#' + btn.dataset.submit); if (f) f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); }
+          else warn(t('mic.paused'));
+        }
       };
-      const stop = () => { try { rec.stop(); } catch {} setListening(false); if (micStop === stop) micStop = null; };
+      const stop = () => { manualStop = true; try { rec.stop(); } catch {} };
+      const abort = () => { discarded = true; try { rec.abort(); } catch { try { rec.stop(); } catch {} } setListening(false); release(); };
       micStop = stop;
+      micAbort = abort;
       setListening(true);
       // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
-      try { rec.start(); } catch (err) { stop(); warn(`${t('mic.failed')} (${err.name || 'start'})`); }
+      try { rec.start(); } catch (err) { abort(); warn(`${t('mic.failed')} (${err.name || 'start'})`); }
     };
   });
 }
@@ -438,7 +450,7 @@ function personDialog(person, opener, save) {
     const finish = (ok) => {
       if (done) return;
       done = true;
-      if (micStop) micStop();
+      if (micAbort) micAbort();
       if (d.open) d.close();
       d.remove();
       if (!ok && opener) focusSoon(opener, 0);
