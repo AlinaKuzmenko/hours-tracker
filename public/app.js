@@ -100,6 +100,10 @@ const SPEECH_LANG = { de: 'de-DE', en: 'en-GB', uk: 'uk-UA' }[LANG];
 const ICON_MIC = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/></svg>';
 const ICON_CLEAR = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 let micStop = null; // finishes the running recording and uses what it heard
+// Safari on iPhone often gives a second recording no sound when a new recogniser object is created for it,
+// so one object is reused for the whole page; a fresh one is only made while the shared one is still busy.
+let sharedRec = null;
+let sharedBusy = false;
 let micAbort = null; // cancels the running recording and drops what it heard (clear button, closing a dialog)
 
 // A text field with a mic button. `submitForm` (optional) is the id of a form to submit when speaking has finished.
@@ -143,7 +147,11 @@ function bindMics(root) {
       // Tapping the button while it is recording finishes the recording (and uses the text).
       if (btn.classList.contains('listening') && micStop) { micStop(); return; }
       if (micAbort) micAbort(); // never two recordings at once (Safari then refuses to start the new one)
-      const rec = new (getSR())();
+      let rec;
+      if (sharedRec && !sharedBusy) rec = sharedRec;
+      else { rec = new (getSR())(); if (!sharedRec) sharedRec = rec; }
+      const isShared = rec === sharedRec;
+      if (isShared) sharedBusy = true;
       rec.lang = SPEECH_LANG;
       rec.interimResults = true;
       // A pause while thinking should not end the recording. If continuous mode has failed before on this device,
@@ -159,10 +167,23 @@ function bindMics(root) {
       const trailEl = root.querySelector('#micTrail');
       const t0 = Date.now(), trail = [];
       const mark = (name) => { trail.push(`${name} ${((Date.now() - t0) / 1000).toFixed(1)}`); if (trailEl) trailEl.textContent = `${rec.continuous ? 'continuous' : 'plain'}: ${trail.join(' › ')}`; };
-      ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch'].forEach((n) => rec.addEventListener(n, () => mark(n)));
+      let sawSound = false, watchdog = null;
+      rec.onstart = () => mark('start');
+      rec.onaudiostart = () => {
+        mark('audiostart');
+        // The microphone opened but no sound arrives at all (e.g. Bluetooth headphones grabbing the input): say so instead of waiting forever.
+        watchdog = setTimeout(() => { if (!sawSound && !discarded && micAbort === abort) { mark('silent'); warn(t('mic.silent')); abort(); } }, 6000);
+      };
+      rec.onsoundstart = () => { sawSound = true; mark('soundstart'); };
+      rec.onspeechstart = () => { sawSound = true; mark('speechstart'); };
+      rec.onspeechend = () => mark('speechend');
+      rec.onsoundend = () => mark('soundend');
+      rec.onaudioend = () => mark('audioend');
+      rec.onnomatch = () => mark('nomatch');
       mark('tap');
       rec.onresult = (e) => {
         if (discarded) return;
+        sawSound = true;
         if (!trail.some((x) => x.startsWith('result'))) mark('result');
         heard = Array.from(e.results).map((r) => r[0].transcript).join(' ').trim();
         input.value = (base ? base + ' ' : '') + heard;
@@ -177,6 +198,8 @@ function bindMics(root) {
       };
       const release = () => { if (micStop === stop) micStop = null; if (micAbort === abort) micAbort = null; };
       rec.onend = () => {
+        clearTimeout(watchdog);
+        if (isShared) sharedBusy = false;
         mark('end');
         if (rec.continuous && !heard && !discarded && !manualStop) { try { sessionStorage.setItem('micPlain', '1'); } catch {} } // nothing came out of continuous mode: use plain mode next time
         setListening(false);
@@ -191,12 +214,12 @@ function bindMics(root) {
         }
       };
       const stop = () => { manualStop = true; try { rec.stop(); } catch {} };
-      const abort = () => { discarded = true; try { rec.abort(); } catch { try { rec.stop(); } catch {} } setListening(false); release(); };
+      const abort = () => { discarded = true; clearTimeout(watchdog); try { rec.abort(); } catch { try { rec.stop(); } catch {} } setListening(false); release(); };
       micStop = stop;
       micAbort = abort;
       setListening(true);
       // Must be started right inside the tap: Safari on iPhone refuses to start recognition later (e.g. from a timer).
-      try { rec.start(); } catch (err) { abort(); warn(`${t('mic.failed')} (${err.name || 'start'})`); }
+      try { rec.start(); } catch (err) { abort(); if (isShared) sharedBusy = false; warn(`${t('mic.failed')} (${err.name || 'start'})`); }
     };
   });
 }
