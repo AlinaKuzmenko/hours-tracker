@@ -20,6 +20,32 @@ async function call(method, url, data) {
   if (!r.ok) throw new Error(j.error || 'Помилка');
   return j;
 }
+// Accessible confirmation dialog (native <dialog>: focus trap, Esc to cancel, background made inert).
+// Focus moves to the title so a screen reader reads it as soon as the dialog opens.
+function confirmDialog({ title, detail, okLabel, opener }) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.setAttribute('role', 'alertdialog');
+    d.setAttribute('aria-labelledby', 'dlg-title');
+    if (detail) d.setAttribute('aria-describedby', 'dlg-detail');
+    d.innerHTML = `<h2 id="dlg-title" tabindex="-1">${esc(title)}</h2>
+      ${detail ? `<p id="dlg-detail">${esc(detail)}</p>` : ''}
+      <form method="dialog">
+        <button value="cancel" class="secondary">Скасувати</button>
+        <button value="ok">${esc(okLabel)}</button>
+      </form>`;
+    d.addEventListener('close', () => {
+      const ok = d.returnValue === 'ok';
+      d.remove();
+      if (!ok && opener && opener.isConnected) opener.focus();
+      resolve(ok);
+    });
+    document.body.appendChild(d);
+    d.showModal();
+    d.querySelector('h2').focus();
+  });
+}
+
 // Disables the button and shows a loader while the request runs, so repeated taps cannot create duplicates.
 async function withBusy(btn, label, fn) {
   if (btn.disabled) return;
@@ -80,7 +106,9 @@ function entryLi(e, withPerson) {
 }
 function bindDelete(after) {
   $app.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Видалити цей запис?')) return;
+    const e = state.entries.find((x) => x.id === b.dataset.del);
+    const title = e ? `Видалити запис: ${personName(e.personId)}, ${fmtDate(e.date)}, ${fmtDuration(e.minutes)}` : 'Видалити запис';
+    if (!(await confirmDialog({ title, okLabel: 'Видалити', opener: b }))) return;
     await withBusy(b, 'Видаляю…', async () => {
       await call('DELETE', '/api/entries/' + b.dataset.del);
       await refresh();
@@ -244,7 +272,8 @@ function renderPeople() {
   };
   $app.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
     const n = personName(b.dataset.rm);
-    if (!confirm(`Видалити ${n} і всі її записи? Це не можна скасувати.`)) return;
+    const title = `Видалити людину: ${n}`;
+    if (!(await confirmDialog({ title, detail: 'Усі записи цієї людини теж буде видалено. Це не можна скасувати.', okLabel: 'Видалити', opener: b }))) return;
     await withBusy(b, 'Видаляю…', async () => {
       await call('DELETE', '/api/people/' + b.dataset.rm);
       await refresh(); renderPeople(); $app.querySelector('h1').focus(); say(`Видалено: ${n}`);
