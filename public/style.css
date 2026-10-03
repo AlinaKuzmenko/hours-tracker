@@ -173,10 +173,11 @@ ul.people .entry-actions { flex-direction: row; gap: .75rem; width: 100%; }
 ul.people .entry-actions button.icon { flex: 1; width: auto; min-height: 2.9rem; height: 2.9rem; }
 
 /* Computers: a wider page, with hours and minutes side by side so the form fits on one screen. */
-@media (min-width: 760px) and (pointer: fine) {
+@media (min-width: 760px) {
   :root { --main-w: 56rem; }
   .hm { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-  .screen { min-height: 0; margin-bottom: 5rem; } /* the full-height phone screens would only leave big gaps here; blocks are 5rem apart instead */
+  .screen { min-height: 0; } /* the full-height phone screens would only leave big gaps here */
+  .screen fieldset, main > h2#recentTitle { margin-top: 4rem; } /* 4rem between the blocks of the main page */
   dialog { width: min(40rem, calc(100vw - 2rem)); }
 }
 
