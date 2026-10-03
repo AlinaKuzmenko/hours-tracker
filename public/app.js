@@ -1,7 +1,7 @@
 const $app = document.getElementById('app');
 const $status = document.getElementById('status');
 const $alert = document.getElementById('alert');
-const { parseSentence, fmtDuration, fmtDate, iso, addDays } = P;
+const { parseSentence, fmtDuration, fmtDate, fmtDateParts, iso, addDays } = P;
 
 let state = { people: [], entries: [] };
 let view = 'add';
@@ -21,15 +21,18 @@ async function call(method, url, data) {
   return j;
 }
 // Accessible confirmation dialog (native <dialog>: focus trap, Esc to cancel, background made inert).
-// Focus moves to the title so a screen reader reads it as soon as the dialog opens.
-function confirmDialog({ title, detail, okLabel, opener }) {
+// Focus moves to the info group, whose aria-label holds the full text, so a screen reader reads it as soon as the dialog opens.
+function confirmDialog({ title, lines = [], detail, okLabel, opener }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.setAttribute('role', 'alertdialog');
-    d.setAttribute('aria-labelledby', 'dlg-title');
-    if (detail) d.setAttribute('aria-describedby', 'dlg-detail');
-    d.innerHTML = `<h2 id="dlg-title" tabindex="-1">${esc(title)}</h2>
-      ${detail ? `<p id="dlg-detail">${esc(detail)}</p>` : ''}
+    d.setAttribute('aria-labelledby', 'dlg-info');
+    const spoken = [title, ...lines, detail].filter(Boolean).join(', ');
+    d.innerHTML = `<div id="dlg-info" role="group" tabindex="-1" aria-label="${esc(spoken)}">
+        <h2>${esc(title)}</h2>
+        ${lines.map((l) => `<div class="dlg-line">${esc(l)}</div>`).join('')}
+        ${detail ? `<p>${esc(detail)}</p>` : ''}
+      </div>
       <div class="dlg-actions">
         <button type="button" class="secondary" data-act="cancel">Скасувати</button>
         <button type="button" data-act="ok">${esc(okLabel)}</button>
@@ -49,7 +52,7 @@ function confirmDialog({ title, detail, okLabel, opener }) {
     d.addEventListener('close', () => finish(false));
     document.body.appendChild(d);
     d.showModal();
-    d.querySelector('h2').focus();
+    d.querySelector('#dlg-info').focus();
   });
 }
 
@@ -114,8 +117,8 @@ function entryLi(e, withPerson) {
 function bindDelete(after) {
   $app.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
     const e = state.entries.find((x) => x.id === b.dataset.del);
-    const title = e ? `Видалити запис: ${personName(e.personId)}, ${fmtDate(e.date)}, ${fmtDuration(e.minutes)}` : 'Видалити запис';
-    if (!(await confirmDialog({ title, okLabel: 'Видалити', opener: b }))) return;
+    const lines = e ? [personName(e.personId), fmtDateParts(e.date).weekday, fmtDateParts(e.date).dayMonth, fmtDuration(e.minutes)] : [];
+    if (!(await confirmDialog({ title: 'Видалити запис', lines, okLabel: 'Видалити', opener: b }))) return;
     await withBusy(b, 'Видаляю…', async () => {
       await call('DELETE', '/api/entries/' + b.dataset.del);
       await refresh();
@@ -279,8 +282,7 @@ function renderPeople() {
   };
   $app.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
     const n = personName(b.dataset.rm);
-    const title = `Видалити людину: ${n}`;
-    if (!(await confirmDialog({ title, detail: 'Усі записи цієї людини теж буде видалено. Це не можна скасувати.', okLabel: 'Видалити', opener: b }))) return;
+    if (!(await confirmDialog({ title: 'Видалити людину', lines: [n], detail: 'Усі записи цієї людини теж буде видалено. Це не можна скасувати.', okLabel: 'Видалити', opener: b }))) return;
     await withBusy(b, 'Видаляю…', async () => {
       await call('DELETE', '/api/people/' + b.dataset.rm);
       await refresh(); renderPeople(); $app.querySelector('h1').focus(); say(`Видалено: ${n}`);

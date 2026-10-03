@@ -105,6 +105,15 @@
     return new Date(y, mo - 1, d).toLocaleDateString('uk-UA', { weekday: 'long', day: 'numeric', month: 'long', ...(withYear ? { year: 'numeric' } : {}) });
   }
 
-  const api = { parseSentence, parseDate, fmtDuration, fmtDate, iso, addDays };
+  function fmtDateParts(isoStr) {
+    const [y, mo, d] = isoStr.split('-').map(Number);
+    const dt = new Date(y, mo - 1, d);
+    return {
+      weekday: dt.toLocaleDateString('uk-UA', { weekday: 'long' }),
+      dayMonth: dt.toLocaleDateString('uk-UA', { day: 'numeric', month: 'long' }),
+    };
+  }
+
+  const api = { parseSentence, parseDate, fmtDuration, fmtDate, fmtDateParts, iso, addDays };
   if (typeof module !== 'undefined') module.exports = api; else root.P = api;
 })(this);
